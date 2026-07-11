@@ -1,0 +1,17 @@
+{
+  "name": "collab-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "pnpm --filter @collab/server dev",
+    "dev:client": "pnpm --filter @collab/client dev",
+    "test": "pnpm --filter @collab/server test",
+    "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

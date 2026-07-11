@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Collab Workspace — Phase 1 Test Client</title>
+    <script>
+      // Runs before any stylesheet/app paint — resolves the dark/light choice
+      // (explicit localStorage pick, else OS preference) synchronously so
+      // there's never a flash of the wrong theme while React boots. Kept in
+      // sync with theme.ts's `currentTheme()`, which the app then hydrates
+      // its own state from.
+      (function () {
+        var stored = localStorage.getItem("collab-theme");
+        var theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

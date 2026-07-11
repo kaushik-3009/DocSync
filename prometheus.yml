@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: collab-server
+    static_configs:
+      - targets: ["server-a:1234", "server-b:1234"]

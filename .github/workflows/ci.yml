@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR instead of letting them queue.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      # Server tests run against pg-mem/ioredis-mock (see docs/TESTING.md) —
+      # no Postgres/Redis services needed here, same as local development.
+      - name: Run tests
+        run: pnpm test
+
+  docker-build:
+    name: Validate server Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # This only proves the image builds — the compose stack (Postgres,
+      # Redis, nginx, Prometheus/Grafana) isn't spun up here; that's a local/
+      # manual verification step documented in docs/TESTING.md, not something
+      # this pipeline runs on every push.
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/server/Dockerfile
+          push: false

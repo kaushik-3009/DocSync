@@ -1,0 +1,8 @@
+packages:
+  - "packages/*"
+allowBuilds:
+  esbuild: true
+  leveldown: false
+  msgpackr-extract: true
+minimumReleaseAgeExclude:
+  - '@opentelemetry/semantic-conventions@1.43.0'

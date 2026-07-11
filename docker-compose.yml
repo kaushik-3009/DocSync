@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: collab
+      POSTGRES_PASSWORD: collab
+      POSTGRES_DB: collab
+    ports:
+      - "5432:5432"
+    volumes:
+      - collab-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U collab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Two server replicas sharing the same Postgres and Redis, fronted by
+  # nginx with no sticky sessions — this is the local proof that Phase 4's
+  # Redis fanout actually makes it safe for a load balancer to route two
+  # requests for the same page to two different processes.
+  server-a: &server
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    environment:
+      PORT: 1234
+      DATABASE_URL: postgres://collab:collab@postgres:5432/collab
+      REDIS_URL: redis://redis:6379
+      # Dev-only secret. In a real deployment this comes from a secrets manager,
+      # not a checked-in compose file — both instances must share the same value
+      # so a token issued by one is accepted by the other.
+      JWT_SECRET: dev-only-insecure-secret-change-me
+      # These replicas are only ever reached through the `lb` nginx service
+      # below (never directly), and nginx.conf sets X-Forwarded-For to the
+      # real client address on every request — so it's safe, and necessary,
+      # for per-IP rate limiting to actually key on the real client here
+      # rather than nginx's own container IP for every request.
+      TRUST_PROXY: "1"
+      LOG_LEVEL: info
+      # Distributed tracing (Phase 9): spans are always created regardless of
+      # this var (see src/tracing/tracer.ts) — setting it is what makes them
+      # actually go somewhere. Both replicas point at the same collector, so
+      # one edit's trace (WS message on server-a -> Postgres -> Redis fanout
+      # -> server-b applying the same update) shows up as a single trace in
+      # Jaeger's UI, not two unrelated ones.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+
+  server-b:
+    <<: *server
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - server-a
+      - server-b
+
+  # Observability (Phase 7): Prometheus scrapes each server replica's /metrics
+  # directly by service name — Grafana then points at Prometheus as its
+  # datasource. Neither is required for the app itself to run; this is purely
+  # for watching it.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - server-a
+      - server-b
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    depends_on:
+      - prometheus
+
+  # Distributed tracing (Phase 9): a single all-in-one image bundles the
+  # collector (receiving OTLP on 4318), storage (in-memory — fine for local
+  # inspection, not for a real deployment), and the query UI on 16686. Not
+  # required for the app to run, same as Prometheus/Grafana.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+volumes:
+  collab-postgres-data:
