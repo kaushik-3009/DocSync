@@ -15,11 +15,11 @@ Real-time documents for text, code, and visual collaboration.
 
 </div>
 
-Collab Workspace is a collaborative editor for teams that need text, code, and visual thinking in one shared document. It is built on a Yjs CRDT and a replica-safe WebSocket service, so concurrent edits converge without a central “last write wins” shortcut.
+DocSync is a collaborative editor for teams that need text, code, and visual thinking in one shared document. It is built on a Yjs CRDT and a replica-safe WebSocket service, so concurrent edits converge without a central “last write wins” shortcut.
 
 The interface is the product; the synchronization, authorization, persistence, and failure handling are the project.
 
-> **Project status:** active engineering project. The local stack and Render Blueprint are included; the benchmark figures below are measured local reference points, not hosted-service guarantees.
+> **Project status:** active engineering project. The local stack and Render Blueprint are included; the benchmark figures below are measured local reference points.
 
 ## Contents
 
@@ -180,7 +180,7 @@ docker-compose.yml Local multi-service infrastructure
 
 ## Known boundaries
 
-This is intentionally not marketed as a finished SaaS. Background jobs still share the server deployment, search currently favors a portable `ILIKE` implementation over a dedicated index, and the project needs browser-level soak testing before a high-volume production launch. Calling those boundaries out is part of the design documentation, not an omission.
+Background jobs still share the server deployment, search currently favors a portable `ILIKE` implementation over a dedicated index, and the project needs browser-level soak testing before a high-volume production launch. Calling those boundaries out is part of the design documentation, not an omission.
 
 ## Roadmap
 
