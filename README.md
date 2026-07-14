@@ -1,6 +1,6 @@
 <div align="center">
 
-# Collab Workspace
+# DocSync
 
 Real-time documents for text, code, and visual collaboration.
 
