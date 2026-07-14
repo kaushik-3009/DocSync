@@ -1,17 +1,42 @@
+<div align="center">
+
 # Collab Workspace
 
+Real-time documents for text, code, and visual collaboration.
+
 [![CI](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml/badge.svg)](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Node.js 20+](https://img.shields.io/badge/node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=20232A)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Yjs](https://img.shields.io/badge/CRDT-Yjs-F05A28)](https://docs.yjs.dev/)
+[![pnpm](https://img.shields.io/badge/package%20manager-pnpm-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 
-Collab Workspace is a real-time document editor built around a production-minded synchronization core. Multiple people can edit rich text, code blocks, and a drawing canvas in the same document while the system handles concurrent updates, reconnects, access control, persistence, and horizontal scaling.
+</div>
 
-This is a systems project presented as a product: the editor is the interface, but the engineering challenge is the consistency model underneath it.
+Collab Workspace is a collaborative editor for teams that need text, code, and visual thinking in one shared document. It is built on a Yjs CRDT and a replica-safe WebSocket service, so concurrent edits converge without a central “last write wins” shortcut.
+
+The interface is the product; the synchronization, authorization, persistence, and failure handling are the project.
+
+> **Project status:** active engineering project. The local stack and Render Blueprint are included; the benchmark figures below are measured local reference points, not hosted-service guarantees.
+
+## Contents
+
+- [What makes it interesting](#what-makes-it-interesting)
+- [Architecture](#architecture)
+- [Performance](#performance)
+- [Run locally](#run-locally)
+- [Deploy on Render](#deploy-on-render)
+- [Testing and quality](#testing-and-quality)
+- [Repository map](#repository-map)
+- [Design decisions](#design-decisions)
 
 ## Why this project exists
 
 Real-time collaboration is easy to demonstrate and difficult to make dependable. A useful implementation must remain coherent when edits arrive concurrently, a browser sleeps, a connection drops, a server restarts, or traffic moves between replicas. This project uses those failure modes as first-class design constraints rather than treating the WebSocket as a thin transport layer.
 
-## Product surface
+## What makes it interesting
 
 - Shared block documents with live presence and remote cursors
 - Collaborative CodeMirror 6 code blocks and tldraw canvas blocks
@@ -19,7 +44,9 @@ Real-time collaboration is easy to demonstrate and difficult to make dependable.
 - Append-only operations, snapshots, version history, and restore
 - Comments, @mentions, search, link previews, and PDF export jobs
 - Rate limiting, structured logs, metrics, and OpenTelemetry tracing
-- Graceful capability degradation when optional infrastructure is unavailable
+- Graceful degradation when optional infrastructure is unavailable
+
+The important behavior is not just “two browsers can type at once.” A disconnected client can reconnect and catch up from a version vector; a page can move between server replicas without sticky sessions; and a raw client update still passes through server-side authorization and validation.
 
 ## Architecture
 
@@ -65,7 +92,7 @@ sequenceDiagram
 | Delivery | Render Blueprint or Docker Compose for local infrastructure |
 | Verification | Vitest, pg-mem, ioredis-mock, k6 |
 
-## Performance snapshot
+## Performance
 
 Measured locally with k6 against the in-memory server. These are reference measurements, not a production SLA.
 
@@ -75,7 +102,26 @@ Measured locally with k6 against the in-memory server. These are reference measu
 | Rate-limit budget, 20 virtual users | 120 accepted, subsequent requests rejected; p95 2.47 ms |
 | WebSocket connection test, 25 clients | 100% success; p95 12–37 ms depending on room sharing |
 
-## Deploy everything on Render
+## Run locally
+
+Requirements: Node.js 20+ and pnpm.
+
+```bash
+pnpm install
+pnpm dev:server   # in-memory mode on :1234
+pnpm dev:client   # http://localhost:5173
+```
+
+Open the client in two browser tabs with the same `?page=` value and edit the same document. This path intentionally has no external dependencies.
+
+For Postgres, Redis, nginx, and observability:
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+## Deploy on Render
 
 The repository includes [`render.yaml`](render.yaml), which provisions a Node web service, a static React site, PostgreSQL, and Redis. No local Docker installation is required.
 
@@ -95,31 +141,14 @@ VITE_WS_URL=wss://api.example.com/ws
 
 Keep `JWT_SECRET`, database credentials, and Redis credentials in Render-managed environment variables. Never commit `.env` or production secrets.
 
-## Run locally
-
-Requirements: Node.js 20+ and pnpm.
-
-```bash
-pnpm install
-pnpm dev:server   # in-memory mode on :1234
-pnpm dev:client   # http://localhost:5173
-```
-
-For the complete local infrastructure stack:
-
-```bash
-cp .env.example .env
-docker compose up --build -d
-```
-
-## Verification
+## Testing and quality
 
 ```bash
 pnpm build
 pnpm test
 ```
 
-The test suite covers persistence adapters, authentication, permissions, WebSocket behavior, rate limiting, and concurrent-edit convergence. Load scripts live in [`loadtest/`](loadtest/).
+The suite covers persistence adapters, authentication, permissions, WebSocket behavior, rate limiting, and concurrent-edit convergence. The end-to-end sync tests use real WebSocket connections and the same `y-websocket` protocol used by the client. Load scripts live in [`loadtest/`](loadtest/).
 
 ## Repository map
 
@@ -133,13 +162,25 @@ render.yaml       Render deployment blueprint
 docker-compose.yml Local multi-service infrastructure
 ```
 
-## Engineering decisions
+## Design decisions
 
 - Yjs CRDTs provide deterministic convergence for concurrent edits without a central operation-transform loop.
 - Postgres is the durability boundary; Redis is coordination and fanout, not the source of truth.
 - Optional integrations are feature-gated so the core editor remains testable in memory.
 - RBAC and input validation live on the server because a client-generated update is untrusted input.
 - The deployment model is intentionally replica-safe: no sticky sessions are required for document synchronization.
+
+## Security and operability
+
+- JWT authentication is enforced by the server, with owner/editor/viewer roles checked before page mutations.
+- WebSocket upgrades support origin validation, bounded payloads, and binary protocol validation.
+- HTTP and WebSocket traffic are rate-limited; Redis makes the limiter shareable across replicas.
+- Secrets are environment-managed and excluded from Git; `.env.example` contains placeholders only.
+- Prometheus metrics, structured logs, and OpenTelemetry spans make room, persistence, and job behavior inspectable.
+
+## Known boundaries
+
+This is intentionally not marketed as a finished SaaS. Background jobs still share the server deployment, search currently favors a portable `ILIKE` implementation over a dedicated index, and the project needs browser-level soak testing before a high-volume production launch. Calling those boundaries out is part of the design documentation, not an omission.
 
 ## Roadmap
 
