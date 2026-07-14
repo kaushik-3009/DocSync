@@ -4,7 +4,6 @@
 
 Real-time documents for text, code, and visual collaboration.
 
-[![CI](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml/badge.svg)](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
