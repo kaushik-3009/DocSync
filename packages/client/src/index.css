@@ -614,6 +614,15 @@ input::placeholder {
   height: 460px;
 }
 
+.connection-error {
+  margin: 2rem auto;
+  max-width: 42rem;
+  padding: 1rem;
+  color: var(--color-danger);
+  background: var(--color-danger-hover);
+  border-radius: var(--radius);
+}
+
 .version-panel-overlay {
   position: fixed;
   inset: 0;
@@ -986,4 +995,14 @@ input::placeholder {
   font-size: 0.78rem;
   color: var(--color-text-muted);
   align-self: center;
+}
+
+@media (max-width: 700px) {
+  .app-shell { min-width: 0; }
+  .sidebar { display: none; }
+  .doc-toolbar { height: auto; min-height: 52px; flex-wrap: wrap; padding: 0.5rem; gap: 0.35rem; }
+  .doc-toolbar .kbd, .doc-toolbar label { display: none; }
+  .doc-page { padding: 1.5rem 0.75rem 30vh; }
+  .canvas-block-body { height: min(60vh, 360px); }
+  .presence-stack { order: 2; }
 }

@@ -85,14 +85,22 @@ export function MentionTextInput({
           if (e.key === "Enter") onSubmit();
         }}
         placeholder={placeholder}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={filtered.length > 0}
+        aria-controls="mention-suggestions"
+        aria-activedescendant={filtered.length > 0 ? `mention-option-${highlight}` : undefined}
       />
       {filtered.length > 0 && (
-        <div className="mention-menu">
+        <div id="mention-suggestions" className="mention-menu" role="listbox">
           {filtered.map((email, i) => (
             <button
               key={email}
               type="button"
               className={`mention-menu-item${i === highlight ? " active" : ""}`}
+              id={`mention-option-${i}`}
+              role="option"
+              aria-selected={i === highlight}
               onMouseEnter={() => setHighlight(i)}
               onClick={() => selectCandidate(email)}
             >

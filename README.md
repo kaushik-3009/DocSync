@@ -1,169 +1,164 @@
 # Collab Workspace
 
-A real-time collaborative document editor. Multiple people type into the
-same document, code block, or drawing canvas at once, and it just
-converges, the same way Google Docs or Notion feels, built from scratch
-to understand how that actually works under the hood.
+[![CI](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml/badge.svg)](https://github.com/kaushik-3009/DocSync/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-I started this because "real-time collaboration" is one of those features
-that sounds simple until you try to build it. Two people edit the same
-sentence at the same instant. A laptop goes to sleep mid-edit and wakes up
-ten seconds later. A server restarts while someone's typing. Any one of
-those can silently corrupt a document if the underlying merge logic isn't
-actually correct, not just usually correct. So instead of building a
-CRUD app with a WebSocket bolted on, I built the sync engine first, proved
-it converges under real concurrent connections, and only then built the
-product on top of it: accounts, permissions, version history, comments,
-search, PDF export, and an embedded code editor and drawing canvas that
-sync the same way the text does.
+Collab Workspace is a real-time document editor built around a production-minded synchronization core. Multiple people can edit rich text, code blocks, and a drawing canvas in the same document while the system handles concurrent updates, reconnects, access control, persistence, and horizontal scaling.
 
-It's a solo project built in about twenty phases, each one shipping
-working, independently testable software rather than one long
-uninterruptible build. What's below is the honest state of it: what
-works, how it's tested, and what I'd still change.
+This is a systems project presented as a product: the editor is the interface, but the engineering challenge is the consistency model underneath it.
 
-## What it does
+## Why this project exists
 
-- **Real-time block editor.** Type into a document, see other people's
-  cursors and edits appear live, no refresh, no merge conflicts.
-- **Embedded collaborative code blocks** (CodeMirror 6) and a
-  **collaborative drawing canvas** (tldraw), both syncing through the
-  same CRDT as the text.
-- **Accounts and access control.** Sign in, open a page, and you're
-  automatically an editor on it, the same mental model as a shared
-  document link, with a first-come owner role for administration.
-- **Version history with restore**, computed by replaying the same
-  append-only edit log used for normal page loads, not a bolted-on
-  snapshot feature.
-- **Comments and @mentions**, search, link previews, and PDF export.
-- **Runs as a real distributed system**: two server replicas behind an
-  nginx load balancer, sharing Postgres and Redis, with Prometheus,
-  Grafana, and Jaeger wired up for actual observability, not just a
-  single process pretending to scale.
+Real-time collaboration is easy to demonstrate and difficult to make dependable. A useful implementation must remain coherent when edits arrive concurrently, a browser sleeps, a connection drops, a server restarts, or traffic moves between replicas. This project uses those failure modes as first-class design constraints rather than treating the WebSocket as a thin transport layer.
 
-## How it's built
+## Product surface
 
-The sync engine is a CRDT ([Yjs](https://github.com/yjs/yjs)), not
-Operational Transformation. The difference matters: OT needs a central
-server to sequence and transform every in-flight edit against every
-other one, which is powerful but easy to get subtly wrong. A CRDT gives
-every pair of concurrent edits a mathematically guaranteed merge outcome,
-computed independently on each client, so the server's job shrinks down to
-relaying updates and deciding who's allowed to send them, not arbitrating
-what they mean.
+- Shared block documents with live presence and remote cursors
+- Collaborative CodeMirror 6 code blocks and tldraw canvas blocks
+- JWT authentication and server-side owner/editor/viewer permissions
+- Append-only operations, snapshots, version history, and restore
+- Comments, @mentions, search, link previews, and PDF export jobs
+- Rate limiting, structured logs, metrics, and OpenTelemetry tracing
+- Graceful capability degradation when optional infrastructure is unavailable
 
-```
-   Browser A ──ws──┐                          ┌── Postgres (ops log, snapshots,
-   Browser B ──ws──┼─▶ Server instance 1  ────┤                users, roles, audit)
-                    │                          │
-   Browser C ──ws──┐                          ├── Redis (cross-instance fanout,
-   Browser D ──ws──┼─▶ Server instance 2  ────┤             rate limits, job queue)
-                    │                          │
-              nginx (round robin, no sticky sessions)
+## Architecture
+
+```mermaid
+flowchart LR
+  U[Browser clients\nReact + Vite] -->|HTTPS / WSS| E[Edge / Render]
+  E --> API[Node.js TypeScript API\nWebSocket gateway]
+  API --> Y[Yjs documents\nroom registry]
+  API --> DB[(Postgres\noperations, snapshots, roles)]
+  API <--> R[(Redis\nfanout, rate limits, BullMQ)]
+  API --> W[Background workers\nsearch, previews, PDF export]
+  API --> O[OpenTelemetry\nmetrics + traces]
 ```
 
-Everything past the WebSocket relay itself, Postgres, Redis, JWT auth,
-background jobs, distributed tracing, is wired as an optional
-collaborator. The server runs and passes its full test suite with none of
-them present, a single in-memory process, and each one activates only
-when its env var is set. That constraint made every phase verifiable on
-its own, and it means the system degrades in a known way (pages stop
-persisting, auth opens up) instead of crashing outright if a dependency
-goes missing.
+The synchronization path is deliberately small: clients exchange Yjs updates through the gateway; Postgres provides durable history; Redis propagates updates between replicas. Authorization is evaluated on the server before mutations are accepted.
 
-## Tech stack
+### Data flow for an edit
 
-**Server:** Node.js, TypeScript, `ws`, Yjs, Postgres, Redis, BullMQ,
-`rate-limiter-flexible`, `jsonwebtoken`, `pino`, `prom-client`,
-OpenTelemetry.
-**Client:** React 18, Vite, Yjs, CodeMirror 6, tldraw.
-**Infra:** Docker Compose (nginx, Postgres, Redis, Prometheus, Grafana,
-Jaeger), GitHub Actions CI, k6 for load testing.
+```mermaid
+sequenceDiagram
+  participant A as Browser A
+  participant G as WebSocket gateway
+  participant P as Postgres
+  participant R as Redis
+  participant B as Browser B
+  A->>G: Yjs update + awareness
+  G->>G: authenticate, authorize, validate
+  G->>P: append operation / snapshot
+  G->>R: publish page update
+  R-->>G: fan out to other replicas
+  G-->>B: apply Yjs update
+```
 
-## Real numbers, not estimates
+## Technology
 
-Measured with `k6` against a running instance (single in-memory server,
-local machine):
+| Layer | Choice |
+| --- | --- |
+| Client | React 18, Vite, CodeMirror 6, tldraw, Yjs |
+| Server | Node.js, TypeScript, `ws`, Yjs, pino |
+| Persistence | PostgreSQL, append-only operations and snapshots |
+| Coordination | Redis, BullMQ, `rate-limiter-flexible` |
+| Observability | Prometheus, Grafana, OpenTelemetry, Jaeger |
+| Delivery | Render Blueprint or Docker Compose for local infrastructure |
+| Verification | Vitest, pg-mem, ioredis-mock, k6 |
 
-| What | Result |
-|---|---|
-| HTTP throughput (`/health`, 50 VUs) | ~956 req/s, p95 3.89ms, 0% failures |
-| Rate limiter under load (120 req/60s budget, 20 VUs) | exactly 120 succeeded, every request after that rejected in p95 2.47ms |
-| WebSocket connect latency (25 concurrent connections) | p95 12.39ms to 36.79ms depending on room sharing, 100% success |
+## Performance snapshot
 
-## Run it
+Measured locally with k6 against the in-memory server. These are reference measurements, not a production SLA.
+
+| Scenario | Result |
+| --- | ---: |
+| `/health`, 50 virtual users | ~956 requests/s; p95 3.89 ms; 0% failures |
+| Rate-limit budget, 20 virtual users | 120 accepted, subsequent requests rejected; p95 2.47 ms |
+| WebSocket connection test, 25 clients | 100% success; p95 12–37 ms depending on room sharing |
+
+## Deploy everything on Render
+
+The repository includes [`render.yaml`](render.yaml), which provisions a Node web service, a static React site, PostgreSQL, and Redis. No local Docker installation is required.
+
+1. Push the repository to GitHub.
+2. In Render, choose **New → Blueprint** and select the repository.
+3. Review the services and create the blueprint.
+4. After Render creates the services, open `collab-workspace-api` and set `ALLOWED_ORIGINS` to the final frontend URL, for example `https://collab-workspace-client.onrender.com`.
+5. Open `collab-workspace-client` and set `VITE_WS_URL` to the API WebSocket URL, for example `wss://collab-workspace-api.onrender.com/ws`.
+6. Trigger a new frontend deploy after setting `VITE_WS_URL`; Vite embeds this value at build time.
+
+For a custom domain, attach `app.example.com` to the static site and `api.example.com` to the API service, then use:
+
+```text
+ALLOWED_ORIGINS=https://app.example.com
+VITE_WS_URL=wss://api.example.com/ws
+```
+
+Keep `JWT_SECRET`, database credentials, and Redis credentials in Render-managed environment variables. Never commit `.env` or production secrets.
+
+## Run locally
+
+Requirements: Node.js 20+ and pnpm.
 
 ```bash
 pnpm install
-pnpm dev:server        # in-memory only, no Postgres/Redis needed
-pnpm dev:client         # http://localhost:5173
+pnpm dev:server   # in-memory mode on :1234
+pnpm dev:client   # http://localhost:5173
 ```
 
-Open the client URL in two browser tabs with the same `?page=` query
-param and edit blocks. Changes sync live, and each tab shows a presence
-badge for itself and whoever else is on the page.
-
-With persistence, cross-instance fanout, auth, and background jobs all
-turned on:
+For the complete local infrastructure stack:
 
 ```bash
-docker compose up postgres redis -d
-DATABASE_URL=postgres://collab:collab@localhost:5432/collab \
-REDIS_URL=redis://localhost:6379 \
-JWT_SECRET=dev-only-secret \
-pnpm dev:server
-```
-
-Or the full distributed stack, two replicas, nginx, Prometheus, Grafana,
-Jaeger:
-
-```bash
+cp .env.example .env
 docker compose up --build -d
-# app:        http://localhost:8080
-# prometheus: http://localhost:9090
-# grafana:    http://localhost:3000
 ```
 
-### Test
+## Verification
 
 ```bash
+pnpm build
 pnpm test
 ```
 
-Runs against `pg-mem` and `ioredis-mock`, no live Docker needed, and
-includes an end-to-end concurrent-edit convergence test using real
-WebSocket connections and the real `y-websocket` client provider, not a
-mocked sync protocol.
+The test suite covers persistence adapters, authentication, permissions, WebSocket behavior, rate limiting, and concurrent-edit convergence. Load scripts live in [`loadtest/`](loadtest/).
 
-### Load test
+## Repository map
+
+```text
+packages/shared   Shared document schema and wire types
+packages/server   WebSocket gateway, auth/RBAC, persistence, jobs, telemetry
+packages/client   React editor, presence UI, comments, history, export controls
+loadtest/         k6 HTTP and WebSocket scenarios
+docs/             Design notes and operational documentation
+render.yaml       Render deployment blueprint
+docker-compose.yml Local multi-service infrastructure
+```
+
+## Engineering decisions
+
+- Yjs CRDTs provide deterministic convergence for concurrent edits without a central operation-transform loop.
+- Postgres is the durability boundary; Redis is coordination and fanout, not the source of truth.
+- Optional integrations are feature-gated so the core editor remains testable in memory.
+- RBAC and input validation live on the server because a client-generated update is untrusted input.
+- The deployment model is intentionally replica-safe: no sticky sessions are required for document synchronization.
+
+## Roadmap
+
+- Move background workers into independently scaled services.
+- Replace `ILIKE` search with a dedicated Postgres full-text index.
+- Add sandboxed, resource-limited code execution for code blocks.
+- Add a production browser test matrix and long-running soak tests.
+
+## Contributing
 
 ```bash
-pnpm --filter @collab/server dev
-k6 run loadtest/http-health.js
-k6 run loadtest/http-rate-limit.js
-PAGE_MODE=many k6 run loadtest/ws-load.js
+cp .env.example .env
+pnpm install
+pnpm build
+pnpm test
 ```
 
-## Project layout
-
-```
-packages/shared   block schema + wire message types, used by both server and client
-packages/server   WebSocket gateway, persistence, auth/RBAC, jobs, rate limiting, tracing
-packages/client   React + Vite editor UI
-loadtest/         k6 scripts for HTTP throughput, rate limiting, and WS connect latency
-```
-
-## What's next
-
-- Move background workers out of the server process, they currently run
-  in-process, fine at this scale but a shared-fate risk under real load.
-- A real full-text search index (Postgres `tsvector`/GIN); the current
-  implementation uses `ILIKE`, a portability trade-off made early on.
-- Sandboxed code execution for the code block, an obvious next feature,
-  intentionally scoped out for now because doing it safely means
-  container-per-execution isolation with no network access and strict
-  resource limits, not a quick `exec` call.
+Open an issue for design discussion or a pull request with tests for behavior changes.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT. See [`LICENSE`](LICENSE).

@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS dependencies
 
 WORKDIR /app
 RUN corepack enable
@@ -9,8 +9,18 @@ COPY packages/server/package.json packages/server/package.json
 
 RUN pnpm install --frozen-lockfile
 
+FROM node:20-alpine
+WORKDIR /app
+RUN corepack enable
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/packages/server/node_modules ./packages/server/node_modules
+COPY --from=dependencies /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY packages/shared packages/shared
 COPY packages/server packages/server
+COPY package.json pnpm-workspace.yaml ./
+
+RUN chown -R node:node /app
+USER node
 
 EXPOSE 1234
 
@@ -21,4 +31,4 @@ EXPOSE 1234
 # (or a dedicated "harden the build" pass) is the right place to introduce
 # a proper multi-stage compiled image if startup time or image size become
 # a real constraint.
-CMD ["npx", "tsx", "packages/server/src/index.ts"]
+CMD ["pnpm", "--filter", "@collab/server", "exec", "tsx", "src/index.ts"]

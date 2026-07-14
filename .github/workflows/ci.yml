@@ -38,6 +38,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
   docker-build:
     name: Validate server Docker image
     runs-on: ubuntu-latest

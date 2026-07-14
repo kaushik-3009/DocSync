@@ -29,6 +29,9 @@ services:
     name: collab-workspace-redis
     plan: starter
     maxmemoryPolicy: noeviction
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Render services
 
   - type: web
     name: collab-workspace-client

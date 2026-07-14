@@ -2,11 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: collab
-      POSTGRES_PASSWORD: collab
-      POSTGRES_DB: collab
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-collab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-collab}
     volumes:
       - collab-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +15,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,12 +32,13 @@ services:
       dockerfile: packages/server/Dockerfile
     environment:
       PORT: 1234
-      DATABASE_URL: postgres://collab:collab@postgres:5432/collab
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-collab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-collab}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
       # Dev-only secret. In a real deployment this comes from a secrets manager,
       # not a checked-in compose file — both instances must share the same value
       # so a token issued by one is accepted by the other.
-      JWT_SECRET: dev-only-insecure-secret-change-me
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
       # These replicas are only ever reached through the `lb` nginx service
       # below (never directly), and nginx.conf sets X-Forwarded-For to the
       # real client address on every request — so it's safe, and necessary,
@@ -62,6 +60,13 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1234/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: 1.0
 
   server-b:
     <<: *server
@@ -73,8 +78,12 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - server-a
-      - server-b
+      server-a:
+        condition: service_healthy
+      server-b:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.5
 
   # Observability (Phase 7): Prometheus scrapes each server replica's /metrics
   # directly by service name — Grafana then points at Prometheus as its
@@ -84,19 +93,16 @@ services:
     image: prom/prometheus:v2.55.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
     depends_on:
       - server-a
       - server-b
 
   grafana:
     image: grafana/grafana:11.3.0
-    ports:
-      - "3000:3000"
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
     depends_on:
       - prometheus
 
@@ -108,9 +114,6 @@ services:
     image: jaegertracing/all-in-one:1.62
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "16686:16686"
-      - "4318:4318"
 
 volumes:
   collab-postgres-data:

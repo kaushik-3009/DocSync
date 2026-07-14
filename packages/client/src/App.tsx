@@ -64,6 +64,7 @@ export function App() {
   // (and its WS connection silently fail to authenticate) before redirecting
   // into the gate a moment later.
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
+  const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   // Don't even attempt the WS connection until we know it has a real chance
   // of succeeding: an unauthenticated connection attempt against a server
@@ -112,8 +113,11 @@ export function App() {
 
   useEffect(() => {
     fetchHealth()
-      .then((res) => setAuthRequired(res.authRequired))
-      .catch(() => setAuthRequired(false));
+      .then((res) => {
+        setAuthRequired(res.authRequired);
+        setHealthUnavailable(false);
+      })
+      .catch(() => setHealthUnavailable(true));
   }, []);
 
   const flatIds = useMemo(() => flattenBlockIds(blocks), [blocks]);
@@ -269,6 +273,10 @@ export function App() {
     return <LoginScreen mandatory onClose={() => {}} />;
   }
 
+  if (healthUnavailable) {
+    return <main className="connection-error" role="alert">Unable to reach Collab Workspace. Check the server connection and reload.</main>;
+  }
+
   return (
     <div className="page-shell">
       <PageSidebar pages={recentPages} currentPageId={pageId} onSelect={joinPage} onNewPage={newPage} />
@@ -280,7 +288,7 @@ export function App() {
             style={{ color: connectionDenied ? "var(--color-danger)" : synced ? "var(--color-accent)" : "var(--color-warning)" }}
           >
             <span className="doc-sync-dot" />
-            {connectionDenied ? "Sign in again to continue" : synced ? "Synced" : "Connecting…"}
+            {connectionDenied ? "Sign in again to continue" : synced ? "Synced" : navigator.onLine ? "Reconnecting — changes may be pending" : "Offline — changes will sync when reconnected"}
           </span>
           <PresenceBar localUser={localUser} peers={peers} />
           <div style={{ flex: 1 }} />

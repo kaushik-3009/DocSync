@@ -75,6 +75,7 @@ export class RoomRegistry {
     if (room && room.connectionCount === 0) {
       this.rooms.delete(pageId);
       this.broadcaster?.unsubscribeRoom(pageId);
+      room.destroy();
       log.info({ event: "room_destroyed", pageId, activeRooms: this.rooms.size }, "room destroyed (empty)");
     }
   }
@@ -85,6 +86,10 @@ export class RoomRegistry {
 
   has(pageId: string): boolean {
     return this.rooms.has(pageId);
+  }
+
+  disconnectUser(pageId: string, userId: string): void {
+    this.rooms.get(pageId)?.disconnectUser(userId);
   }
 
   /** Non-creating lookup — for read-only endpoints (e.g. presence) that must never spin up an empty room. */

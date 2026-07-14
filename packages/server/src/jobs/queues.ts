@@ -104,11 +104,11 @@ export class JobQueues {
   /** Lets an HTTP caller poll a PDF export request by BullMQ job id. Once `state` is
    *  "completed", `exportId` is the row in the `exports` table to fetch via GET /exports/:id
    *  (the processor's return value becomes the job's `returnvalue`). */
-  async getPdfExportJobStatus(jobId: string): Promise<{ state: string; exportId?: string } | null> {
+  async getPdfExportJobStatus(jobId: string): Promise<{ state: string; pageId: string; exportId?: string } | null> {
     const job = await this.pdfExport.getJob(jobId);
     if (!job) return null;
     const state = await job.getState();
-    return { state, exportId: state === "completed" ? (job.returnvalue as string) : undefined };
+    return { state, pageId: job.data.pageId, exportId: state === "completed" ? (job.returnvalue as string) : undefined };
   }
 
   async close(): Promise<void> {

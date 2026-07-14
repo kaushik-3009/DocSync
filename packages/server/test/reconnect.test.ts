@@ -6,31 +6,46 @@ import { WebsocketProvider } from "y-websocket";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway } from "../src/ws-gateway.js";
+import type { WebSocketServer } from "ws";
 import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
 import type { PresenceState } from "@collab/shared";
 
 let httpServer: Server;
 let port: number;
+let providers: WebsocketProvider[];
+let wss: WebSocketServer;
 
 beforeEach(async () => {
+  providers = [];
   httpServer = createServer();
-  attachWsGateway(httpServer, new RoomRegistry());
+  wss = attachWsGateway(httpServer, new RoomRegistry());
   await new Promise<void>((resolve) => httpServer.listen(0, resolve));
   port = (httpServer.address() as AddressInfo).port;
 });
 
 afterEach(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  providers.forEach((provider) => provider.destroy());
+  wss.clients.forEach((client) => client.terminate());
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 500);
+    wss.close(() => { clearTimeout(timer); resolve(); });
+  });
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 500);
+    httpServer.close(() => { clearTimeout(timer); resolve(); });
+  });
 });
 
 function connectClient(pageId: string, doc: Y.Doc): WebsocketProvider {
-  return new WebsocketProvider(`ws://localhost:${port}/ws`, pageId, doc, {
+  const provider = new WebsocketProvider(`ws://localhost:${port}/ws`, pageId, doc, {
     WebSocketPolyfill: ws as unknown as typeof WebSocket,
     // See convergence.test.ts: without this, y-websocket's in-process BroadcastChannel
     // polyfill lets same-room providers sync directly, bypassing the server (and, for
     // the disconnect/reconnect case here, bypassing the very thing being tested).
     disableBc: true,
   });
+  providers.push(provider);
+  return provider;
 }
 
 function waitForSync(provider: WebsocketProvider): Promise<void> {

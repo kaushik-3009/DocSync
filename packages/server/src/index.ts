@@ -48,6 +48,11 @@ const TRUST_PROXY = process.env.TRUST_PROXY === "1";
 const DATABASE_URL = process.env.DATABASE_URL;
 const REDIS_URL = process.env.REDIS_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const MAX_HTTP_BODY_BYTES = Number(process.env.MAX_HTTP_BODY_BYTES ?? 65_536);
 
 let pageStore: PageStore | null = null;
 let pool: Pool | null = null;
@@ -165,7 +170,16 @@ const EXPORT_DOWNLOAD_PATH = /^\/exports\/([A-Za-z0-9_-]+)$/;
 function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
     let raw = "";
-    req.on("data", (chunk) => (raw += chunk));
+    let bytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_HTTP_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("request body too large"));
+        return;
+      }
+      raw += chunk;
+    });
     req.on("end", () => {
       try {
         resolve(raw ? JSON.parse(raw) : ({} as T));
@@ -252,7 +266,11 @@ const httpServer = createServer((req, res) => {
   // as an opaque "Failed to fetch" with no hint it was CORS at all. Bearer
   // tokens (not cookies) carry auth here, so a wildcard origin has no
   // ambient credential to leak.
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
@@ -397,7 +415,21 @@ const httpServer = createServer((req, res) => {
 
   const presenceMatch = url.match(PRESENCE_PATH);
   if (presenceMatch) {
-    const room = registry.peekRoom(presenceMatch[1]);
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    const pageId = presenceMatch[1];
+    if (authResult) {
+      getExistingRole(auth!.pool, pageId, authResult.userId)
+        .then((role) => {
+          if (!role) return sendJson(res, 403, { error: "no access to this page" });
+          sendPresence();
+        })
+        .catch((err) => handleRouteError(res, "presence_failed", err));
+      return;
+    }
+    sendPresence();
+    function sendPresence(): void {
+    const room = registry.peekRoom(pageId);
     // Read-only and non-creating: polling this for a page nobody has
     // joined (on this instance) must not spin up an empty room. With a
     // RoomBroadcaster wired up (Phase 4), a room's awareness object is
@@ -410,7 +442,8 @@ const httpServer = createServer((req, res) => {
           .map((s) => s.presence)
           .filter(Boolean)
       : [];
-    sendJson(res, 200, { pageId: presenceMatch[1], presence: dedupePresenceByUser(rawPresence), instanceOnly: !broadcaster });
+    sendJson(res, 200, { pageId, presence: dedupePresenceByUser(rawPresence), instanceOnly: !broadcaster });
+    }
     return;
   }
 
@@ -441,6 +474,7 @@ const httpServer = createServer((req, res) => {
         if (!grantee) return sendJson(res, 200, { pageId, granteeEmail: email, role });
 
         await grantRole(auth!.pool, pageId, authResult.userId, grantee.id, role);
+        registry.disconnectUser(pageId, grantee.id);
         recordAudit(auth!.pool, {
           userId: authResult.userId,
           pageId,
@@ -561,12 +595,19 @@ const httpServer = createServer((req, res) => {
   const exportStatusMatch = url.match(EXPORT_STATUS_PATH);
   if (exportStatusMatch && req.method === "GET") {
     if (!jobQueues) return sendJson(res, 503, { error: "exports require REDIS_URL and DATABASE_URL" });
-    const [, , jobId] = exportStatusMatch;
+    const [, pageId, jobId] = exportStatusMatch;
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
     jobQueues
       .getPdfExportJobStatus(jobId)
-      .then((status) => {
+      .then(async (status) => {
         if (!status) return sendJson(res, 404, { error: "no such export job" });
-        sendJson(res, 200, status);
+        if (status.pageId !== pageId) return sendJson(res, 404, { error: "no such export job" });
+        if (authResult && !(await getExistingRole(pool!, pageId, authResult.userId))) {
+          return sendJson(res, 403, { error: "no access to this page" });
+        }
+        const { pageId: _pageId, ...response } = status;
+        sendJson(res, 200, response);
       })
       .catch((err) => handleRouteError(res, "export_status_failed", err));
     return;
@@ -681,7 +722,10 @@ const httpServer = createServer((req, res) => {
   }
 });
 
-attachWsGateway(httpServer, registry, auth ?? undefined, wsRateLimit, TRUST_PROXY);
+attachWsGateway(httpServer, registry, auth ?? undefined, wsRateLimit, TRUST_PROXY, {
+  allowedOrigins: ALLOWED_ORIGINS,
+  maxPayloadBytes: Number(process.env.MAX_WS_PAYLOAD_BYTES ?? 1_048_576),
+});
 
 httpServer.listen(PORT, () => {
   logger.info({ event: "server_started", port: PORT }, `collab server listening on :${PORT}`);

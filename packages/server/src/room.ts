@@ -77,6 +77,12 @@ export class Room {
   /** Role a connection was granted at join time (Phase 5). Absent entirely when auth is
    *  disabled, in which case every connection behaves as before — unrestricted. */
   private readonly rolesByConnection = new Map<WebSocket, Role>();
+  private readonly userIdsByConnection = new Map<WebSocket, string>();
+  private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
+  private readonly onAwarenessUpdate: (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown
+  ) => void;
 
   constructor(
     pageId: string,
@@ -97,7 +103,7 @@ export class Room {
     this.mentionsStore = mentionsStore;
     this.lastPersistedSeq = initialSeq;
 
-    this.doc.on("update", (update: Uint8Array, origin: unknown) => {
+    this.onDocUpdate = (update: Uint8Array, origin: unknown) => {
       const isRemote = origin === REMOTE_ORIGIN;
       // A span per doc update, not per Room: "room.doc_update" for a locally
       // originated edit (parent of the persist/enqueue spans below, and — via
@@ -147,11 +153,10 @@ export class Room {
 
         this.broadcaster?.publishUpdate(this.pageId, update);
       });
-    });
+    };
+    this.doc.on("update", this.onDocUpdate);
 
-    this.awareness.on(
-      "update",
-      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+    this.onAwarenessUpdate = ({ added, updated, removed }, origin) => {
         const changedClients = added.concat(updated, removed);
         const encodedUpdate = encodeAwarenessUpdate(this.awareness, changedClients);
         const encoder = encoding.createEncoder();
@@ -171,8 +176,8 @@ export class Room {
         if (origin !== REMOTE_ORIGIN) {
           this.broadcaster?.publishAwareness(this.pageId, encodedUpdate);
         }
-      }
-    );
+      };
+    this.awareness.on("update", this.onAwarenessUpdate);
   }
 
   /** Applies an update received from another instance via Redis to this instance's local doc.
@@ -195,9 +200,10 @@ export class Room {
     return this.lastPersistedSeq;
   }
 
-  addConnection(ws: WebSocket, role: Role | null = null): void {
+  addConnection(ws: WebSocket, role: Role | null = null, userId: string | null = null): void {
     this.conns.add(ws);
     if (role) this.rolesByConnection.set(ws, role);
+    if (userId) this.userIdsByConnection.set(ws, userId);
     this.log.info({ event: "connection_added", connections: this.conns.size, role }, "client joined room");
 
     // Initial handshake: tell the new client our state vector so it can
@@ -221,12 +227,33 @@ export class Room {
   removeConnection(ws: WebSocket): void {
     this.conns.delete(ws);
     this.rolesByConnection.delete(ws);
+    this.userIdsByConnection.delete(ws);
     const ids = this.awarenessClientIdsByConnection.get(ws);
     this.awarenessClientIdsByConnection.delete(ws);
     if (ids && ids.size > 0) {
       removeAwarenessStates(this.awareness, Array.from(ids), null);
     }
     this.log.info({ event: "connection_removed", connections: this.conns.size }, "client left room");
+  }
+
+  /** Releases Yjs observers and state once the registry evicts an empty room. */
+  destroy(): void {
+    this.doc.off("update", this.onDocUpdate);
+    this.awareness.off("update", this.onAwarenessUpdate);
+    this.conns.clear();
+    this.rolesByConnection.clear();
+    this.userIdsByConnection.clear();
+    this.awarenessClientIdsByConnection.clear();
+    this.lastScannedCommentText.clear();
+    this.awareness.destroy();
+    this.doc.destroy();
+  }
+
+  /** Force active sessions to reconnect after an administrator changes their role. */
+  disconnectUser(userId: string): void {
+    for (const [connection, connectionUserId] of this.userIdsByConnection) {
+      if (connectionUserId === userId) connection.close(4001, "page permissions changed");
+    }
   }
 
   handleMessage(ws: WebSocket, message: Uint8Array): void {

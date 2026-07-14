@@ -31,6 +31,12 @@ export interface WsRateLimitConfig {
   message: RateLimiterAbstract;
 }
 
+export interface WsSecurityConfig {
+  /** Browser origins permitted to establish a socket. Empty means disabled for local/dev use. */
+  allowedOrigins?: string[];
+  maxPayloadBytes?: number;
+}
+
 /** Only trust `X-Forwarded-For` when told the server actually sits behind a
  *  proxy that sets it (nginx, per this project's docker-compose.yml) —
  *  otherwise any direct caller can put an arbitrary value in that header and
@@ -57,14 +63,23 @@ export function attachWsGateway(
   registry: RoomRegistry,
   auth?: WsAuthConfig,
   rateLimit?: WsRateLimitConfig,
-  trustProxy = false
+  trustProxy = false,
+  security: WsSecurityConfig = {}
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: security.maxPayloadBytes ?? 1_048_576 });
 
   httpServer.on("upgrade", (request, socket, head) => {
     const rawUrl = request.url ?? "";
     const { pathname, searchParams } = new URL(rawUrl, "http://internal");
     const pageId = pageIdFromPath(pathname);
+
+    const origin = request.headers.origin;
+    if (security.allowedOrigins?.length && (!origin || !security.allowedOrigins.includes(origin))) {
+      log.warn({ event: "rejected_upgrade", origin, reason: "origin_not_allowed" }, "rejecting websocket origin");
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
 
     if (!pageId) {
       log.warn({ event: "rejected_upgrade", url: rawUrl }, "no pageId in path, rejecting connection");
@@ -134,10 +149,18 @@ export function attachWsGateway(
     let room: import("./room.js").Room | null = null;
     let closed = false;
     const buffered: Uint8Array[] = [];
+    let bufferedBytes = 0;
+    const maxBufferedBytes = security.maxPayloadBytes ?? 1_048_576;
 
     const handle = (bytes: Uint8Array) => {
       wsMessagesTotal.inc();
       if (!room) {
+        bufferedBytes += bytes.byteLength;
+        if (bufferedBytes > maxBufferedBytes) {
+          log.warn({ event: "connection_buffer_exceeded", pageId, bufferedBytes }, "closing connection with excessive pre-room data");
+          ws.close(1009, "message buffer too large");
+          return;
+        }
         buffered.push(bytes);
         return;
       }
@@ -148,7 +171,11 @@ export function attachWsGateway(
       }
     };
 
-    ws.on("message", (data: Buffer) => {
+    ws.on("message", (data: Buffer | ArrayBuffer | Buffer[], isBinary) => {
+      if (!isBinary || Array.isArray(data)) {
+        ws.close(1003, "binary protocol required");
+        return;
+      }
       const bytes = new Uint8Array(data);
       if (!rateLimit) return handle(bytes);
 
@@ -201,9 +228,12 @@ export function attachWsGateway(
       }
 
       const resolvedRoom = await registry.getOrCreateRoom(pageId);
-      if (closed) return; // client disconnected while the room/role was resolving
+      if (closed) {
+        registry.releaseRoom(pageId);
+        return;
+      }
       room = resolvedRoom;
-      room.addConnection(ws, role);
+      room.addConnection(ws, role, userId);
       roomsActive.set(registry.activeRoomCount);
       if (auth && userId) recordAudit(auth.pool, { userId, pageId, event: "ws_connected", metadata: { role } });
       for (const bytes of buffered) {
