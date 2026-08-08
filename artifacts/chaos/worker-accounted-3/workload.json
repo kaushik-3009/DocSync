@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-08-06T02:25:49.243Z",
+  "finishedAt": "2026-08-06T02:26:00.430Z",
+  "settings": {
+    "clients": 4,
+    "operationsPerClient": 2,
+    "operationIntervalMs": 250,
+    "settleMs": 2000,
+    "preMutationPauseMs": 5000,
+    "propagationTimeoutMs": 20000,
+    "httpBaseUrl": "http://localhost:18081",
+    "wsBaseUrl": "ws://localhost:18081",
+    "origin": "http://localhost:18081",
+    "pageId": "chaos-worker-accounted-3",
+    "runId": "worker-accounted-3",
+    "output": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/worker-accounted-3/workload.json",
+    "readyFile": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/worker-accounted-3/workload-ready.json"
+  },
+  "pageId": "chaos-worker-accounted-3",
+  "mutations": {
+    "generated": [
+      "worker-accounted-3-0-0",
+      "worker-accounted-3-1-0",
+      "worker-accounted-3-2-0",
+      "worker-accounted-3-3-0",
+      "worker-accounted-3-0-1",
+      "worker-accounted-3-1-1",
+      "worker-accounted-3-2-1",
+      "worker-accounted-3-3-1"
+    ],
+    "acceptedByHarness": [
+      "worker-accounted-3-0-0",
+      "worker-accounted-3-1-0",
+      "worker-accounted-3-2-0",
+      "worker-accounted-3-3-0",
+      "worker-accounted-3-0-1",
+      "worker-accounted-3-1-1",
+      "worker-accounted-3-2-1",
+      "worker-accounted-3-3-1"
+    ],
+    "sentLive": [
+      "worker-accounted-3-0-0",
+      "worker-accounted-3-1-0",
+      "worker-accounted-3-2-0",
+      "worker-accounted-3-3-0",
+      "worker-accounted-3-0-1",
+      "worker-accounted-3-1-1",
+      "worker-accounted-3-2-1",
+      "worker-accounted-3-3-1"
+    ],
+    "records": [
+      {
+        "mutationId": "worker-accounted-3-0-0",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-06T02:25:56.374Z",
+        "sentLive": true,
+        "updateFingerprint": "9fa30378a35c384d2eb478b4bcdda5e439938ee79b1d6461cd61e4ec5e6e6a70"
+      },
+      {
+        "mutationId": "worker-accounted-3-1-0",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-06T02:25:56.632Z",
+        "sentLive": true,
+        "updateFingerprint": "c61c20672e5c44188e15727f8ceda022255a232e55f6817061501755f6acf75c"
+      },
+      {
+        "mutationId": "worker-accounted-3-2-0",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-06T02:25:56.884Z",
+        "sentLive": true,
+        "updateFingerprint": "755ed853688e828ec78028008c7cd4dfca17335cf05dcfbbba5befba894a035e"
+      },
+      {
+        "mutationId": "worker-accounted-3-3-0",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-06T02:25:57.136Z",
+        "sentLive": true,
+        "updateFingerprint": "c77435533623787be522f25d26527d53c0b045240c06483a061776a9495a8df1"
+      },
+      {
+        "mutationId": "worker-accounted-3-0-1",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-06T02:25:57.389Z",
+        "sentLive": true,
+        "updateFingerprint": "b53d8e8bb768bf32f27bc13157276ed21259b1560b9ebbe6fe22f09c94ce0021"
+      },
+      {
+        "mutationId": "worker-accounted-3-1-1",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-06T02:25:57.641Z",
+        "sentLive": true,
+        "updateFingerprint": "21bbcbfab3b31565464068d1ebe212367c7f1d7cede8729fbd75c65a6e1c3865"
+      },
+      {
+        "mutationId": "worker-accounted-3-2-1",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-06T02:25:57.892Z",
+        "sentLive": true,
+        "updateFingerprint": "21a5d58cd17589a5246f8913ede99a8308ae70460f4f77b77a849d4e0ab1065b"
+      },
+      {
+        "mutationId": "worker-accounted-3-3-1",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-06T02:25:58.145Z",
+        "sentLive": true,
+        "updateFingerprint": "f8a3ad5bfe9552eaefffaaff1e2162bd7d2ab7f274dcd4f925734826b77f8a06"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "client-0",
+      "mapKeys": [
+        "worker-accounted-3-0-0",
+        "worker-accounted-3-0-1",
+        "worker-accounted-3-1-0",
+        "worker-accounted-3-1-1",
+        "worker-accounted-3-2-0",
+        "worker-accounted-3-2-1",
+        "worker-accounted-3-3-0",
+        "worker-accounted-3-3-1"
+      ],
+      "mapHash": "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-1",
+      "mapKeys": [
+        "worker-accounted-3-0-0",
+        "worker-accounted-3-0-1",
+        "worker-accounted-3-1-0",
+        "worker-accounted-3-1-1",
+        "worker-accounted-3-2-0",
+        "worker-accounted-3-2-1",
+        "worker-accounted-3-3-0",
+        "worker-accounted-3-3-1"
+      ],
+      "mapHash": "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-2",
+      "mapKeys": [
+        "worker-accounted-3-0-0",
+        "worker-accounted-3-0-1",
+        "worker-accounted-3-1-0",
+        "worker-accounted-3-1-1",
+        "worker-accounted-3-2-0",
+        "worker-accounted-3-2-1",
+        "worker-accounted-3-3-0",
+        "worker-accounted-3-3-1"
+      ],
+      "mapHash": "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-3",
+      "mapKeys": [
+        "worker-accounted-3-0-0",
+        "worker-accounted-3-0-1",
+        "worker-accounted-3-1-0",
+        "worker-accounted-3-1-1",
+        "worker-accounted-3-2-0",
+        "worker-accounted-3-2-1",
+        "worker-accounted-3-3-0",
+        "worker-accounted-3-3-1"
+      ],
+      "mapHash": "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    }
+  ],
+  "convergence": {
+    "clientCount": 4,
+    "converged": true,
+    "canonicalHashes": [
+      "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f"
+    ]
+  },
+  "claimBoundary": "acceptedByHarness means a deterministic mutation intent was generated; durable/lost are calculated from the Postgres ops log by summarize-chaos.ts."
+}

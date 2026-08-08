@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 dist/
 coverage/
 .env*
@@ -7,5 +8,31 @@ coverage/
 docker-compose.override.yml
 *.log
 .DS_Store
+infra/aws/terraform.tfvars
+infra/aws/*.tfplan
+# Internal planning, architecture, cost, and evidence notes stay local. The
+# public project documentation is README.md.
 docs/
+
+# Large raw benchmark/chaos directories should be attached as release
+# artifacts; curated manifests and screenshots stay available locally.
+artifacts/benchmarks/*/
+artifacts/chaos/*/
+!artifacts/benchmarks/publish-20260806-25c/
+!artifacts/benchmarks/publish-20260806-25c/client-results.json
+!artifacts/benchmarks/publish-20260806-25c/collection-summary.json
+!artifacts/benchmarks/publish-20260806-50c/
+!artifacts/benchmarks/publish-20260806-50c/client-results.json
+!artifacts/benchmarks/publish-20260806-50c/collection-summary.json
+!artifacts/benchmarks/publish-20260806-100c/
+!artifacts/benchmarks/publish-20260806-100c/client-results.json
+!artifacts/benchmarks/publish-20260806-100c/collection-summary.json
+!artifacts/chaos/test-persistent-gateway-2/
+!artifacts/chaos/test-persistent-gateway-2/summary.json
+!artifacts/chaos/test-persistent-redis/
+!artifacts/chaos/test-persistent-redis/summary.json
+!artifacts/chaos/test-persistent-postgres-1/
+!artifacts/chaos/test-persistent-postgres-1/summary.json
+!artifacts/chaos/worker-accounted-3/
+!artifacts/chaos/worker-accounted-3/summary.json
 .claude/

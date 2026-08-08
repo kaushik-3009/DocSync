@@ -10,7 +10,7 @@ import { tryConsume } from "./rate-limit/limiters.js";
 import { verifyToken } from "./auth/jwt.js";
 import { resolveRoleForConnection } from "./auth/rbac.js";
 import { recordAudit } from "./auth/audit.js";
-import { wsConnectionsActive, roomsActive, wsMessagesTotal, rateLimitRejectionsTotal } from "./metrics/registry.js";
+import { wsConnectionsActive, wsConnectionsTotal, roomsActive, wsMessagesTotal, rateLimitRejectionsTotal } from "./metrics/registry.js";
 
 const log = childLogger({ module: "ws-gateway" });
 
@@ -137,6 +137,8 @@ export function attachWsGateway(
 
   wss.on("connection", (ws: WebSocket, _request: IncomingMessage, pageId: string, token: string | null) => {
     wsConnectionsActive.inc();
+    wsConnectionsTotal.inc();
+    const connectionId = randomUUID();
     const messageLimitKey = randomUUID();
 
     // Room resolution is async (it may replay a page's history from
@@ -157,7 +159,7 @@ export function attachWsGateway(
       if (!room) {
         bufferedBytes += bytes.byteLength;
         if (bufferedBytes > maxBufferedBytes) {
-          log.warn({ event: "connection_buffer_exceeded", pageId, bufferedBytes }, "closing connection with excessive pre-room data");
+          log.warn({ event: "connection_buffer_exceeded", pageId, connectionId, bufferedBytes }, "closing connection with excessive pre-room data");
           ws.close(1009, "message buffer too large");
           return;
         }
@@ -167,7 +169,7 @@ export function attachWsGateway(
       try {
         room.handleMessage(ws, bytes);
       } catch (err) {
-        log.error({ event: "message_handling_error", pageId, err }, "failed to handle message");
+        log.error({ event: "message_handling_error", pageId, connectionId, err }, "failed to handle message");
       }
     };
 
@@ -185,7 +187,7 @@ export function attachWsGateway(
         }
         if (!allowed) {
           rateLimitRejectionsTotal.inc({ scope: "ws_message" });
-          log.warn({ event: "connection_rate_limited", pageId }, "closing connection for exceeding message rate limit");
+          log.warn({ event: "connection_rate_limited", pageId, connectionId }, "closing connection for exceeding message rate limit");
           ws.close(4429, "message rate limit exceeded");
           return;
         }
@@ -204,7 +206,7 @@ export function attachWsGateway(
     });
 
     ws.on("error", (err) => {
-      log.error({ event: "socket_error", pageId, err }, "socket error");
+      log.error({ event: "socket_error", pageId, connectionId, err }, "socket error");
     });
 
     (async () => {
@@ -213,7 +215,7 @@ export function attachWsGateway(
       if (auth) {
         const payload = token ? verifyToken(token, auth.jwtSecret) : null;
         if (!payload) {
-          log.warn({ event: "rejected_upgrade", pageId, reason: "invalid_or_missing_token" }, "rejecting connection");
+          log.warn({ event: "rejected_upgrade", pageId, connectionId, reason: "invalid_or_missing_token" }, "rejecting connection");
           ws.close(4401, "invalid or missing token");
           return;
         }
@@ -235,12 +237,12 @@ export function attachWsGateway(
       room = resolvedRoom;
       room.addConnection(ws, role, userId);
       roomsActive.set(registry.activeRoomCount);
-      if (auth && userId) recordAudit(auth.pool, { userId, pageId, event: "ws_connected", metadata: { role } });
+      if (auth && userId) recordAudit(auth.pool, { userId, pageId, event: "ws_connected", metadata: { role, connectionId } });
       for (const bytes of buffered) {
         room.handleMessage(ws, bytes);
       }
     })().catch((err) => {
-      log.error({ event: "room_load_failed", pageId, err }, "failed to load room");
+      log.error({ event: "room_load_failed", pageId, connectionId, err }, "failed to load room");
       ws.close(1011, "failed to load room");
     });
   });

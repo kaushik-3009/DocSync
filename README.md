@@ -2,7 +2,7 @@
 
 # DocSync
 
-Real-time documents for text, code, and visual collaboration.
+A shared workspace for notes, source code, and visual canvases. Multiple people can edit the same page, see live presence and cursors, discuss changes in comments, restore earlier versions, and export a page as a PDF.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -10,61 +10,42 @@ Real-time documents for text, code, and visual collaboration.
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=20232A)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Yjs](https://img.shields.io/badge/CRDT-Yjs-F05A28)](https://docs.yjs.dev/)
-[![pnpm](https://img.shields.io/badge/package%20manager-pnpm-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 
 </div>
 
-DocSync is a collaborative editor for teams that need text, code, and visual thinking in one shared document. It is built on a Yjs CRDT and a replica-safe WebSocket service, so concurrent edits converge without a central “last write wins” shortcut.
+<p align="center">
+  <img src="./artifacts/screenshots/docsync-editor.png" alt="DocSync Editor Page" width="800">
+</p>
 
-The interface is the product; the synchronization, authorization, persistence, and failure handling are the project.
+---
 
-> **Project status:** active engineering project. The local stack and Render Blueprint are included; the benchmark figures below are measured local reference points.
+## Capabilities
 
-## Contents
+- Block-based pages with headings, rich text, code, and canvas blocks
+- Concurrent editing via Yjs CRDT synchronization
+- CodeMirror 6 editor blocks and tldraw canvas blocks
+- Live presence, cursors, comments, mentions, search, and link previews
+- Version history with restore from a durable operation log
+- Owner, editor, and viewer access controls
+- Background jobs for search indexing, link previews, and PDF export
+- Rate limiting, structured logging, metrics, and distributed tracing
 
-- [What makes it interesting](#what-makes-it-interesting)
-- [Architecture](#architecture)
-- [Performance](#performance)
-- [Run locally](#run-locally)
-- [Deploy on Render](#deploy-on-render)
-- [Testing and quality](#testing-and-quality)
-- [Repository map](#repository-map)
-- [Design decisions](#design-decisions)
-
-## Why this project exists
-
-Real-time collaboration is easy to demonstrate and difficult to make dependable. A useful implementation must remain coherent when edits arrive concurrently, a browser sleeps, a connection drops, a server restarts, or traffic moves between replicas. This project uses those failure modes as first-class design constraints rather than treating the WebSocket as a thin transport layer.
-
-## What makes it interesting
-
-- Shared block documents with live presence and remote cursors
-- Collaborative CodeMirror 6 code blocks and tldraw canvas blocks
-- JWT authentication and server-side owner/editor/viewer permissions
-- Append-only operations, snapshots, version history, and restore
-- Comments, @mentions, search, link previews, and PDF export jobs
-- Rate limiting, structured logs, metrics, and OpenTelemetry tracing
-- Graceful degradation when optional infrastructure is unavailable
-
-The important behavior is not just “two browsers can type at once.” A disconnected client can reconnect and catch up from a version vector; a page can move between server replicas without sticky sessions; and a raw client update still passes through server-side authorization and validation.
+Yjs guarantees merge convergence for concurrent edits, but it does not enforce authentication, authorization, or application-level rules. The server handles those separately.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  U[Browser clients\nReact + Vite] -->|HTTPS / WSS| E[Edge / Render]
-  E --> API[Node.js TypeScript API\nWebSocket gateway]
-  API --> Y[Yjs documents\nroom registry]
-  API --> DB[(Postgres\noperations, snapshots, roles)]
-  API <--> R[(Redis\nfanout, rate limits, BullMQ)]
-  API --> W[Background workers\nsearch, previews, PDF export]
-  API --> O[OpenTelemetry\nmetrics + traces]
-```
+The synchronization path is small on purpose: clients exchange Yjs updates through a WebSocket gateway, Postgres holds durable history, and Redis propagates updates between gateway replicas. Authorization is checked on the server before any mutation is accepted.
 
-The synchronization path is deliberately small: clients exchange Yjs updates through the gateway; Postgres provides durable history; Redis propagates updates between replicas. Authorization is evaluated on the server before mutations are accepted.
+<p align="center">
+  <img src="./artifacts/screenshots/sys-arch.png" alt="System Architecture" width="800">
+</p>
+
+
+The same design runs in two environments. Locally, Nginx sits in front of two gateway containers, Postgres, and Redis, all managed by Docker Compose. On AWS, an Application Load Balancer sits in front of two ECS/Fargate gateway tasks backed by RDS PostgreSQL (Single-AZ) and ElastiCache Redis, with images pulled from ECR, secrets from Secrets Manager, and logs and metrics sent to CloudWatch. Both environments run the identical gateway code and the same Postgres-then-Redis write order.
 
 ### Data flow for an edit
 
-```mermaid
+~~~mermaid
 sequenceDiagram
   participant A as Browser A
   participant G as WebSocket gateway
@@ -77,128 +58,92 @@ sequenceDiagram
   G->>R: publish page update
   R-->>G: fan out to other replicas
   G-->>B: apply Yjs update
-```
+~~~
+
+An accepted edit is authenticated and authorized at the WebSocket boundary, appended to Postgres, applied to the local Yjs document, and only then published through Redis to the other gateway. Durable history is always written before fanout, which keeps replay and recovery consistent.
+
+The AWS profile used two gateways, one worker, one Single-AZ database, and one Redis node in us-east-2. It was a short-lived deployment used to collect benchmark and failover evidence, and it has since been destroyed. No AWS environment is currently running for this repository.
+
+## Engineering highlights
+
+- Two gateway instances share document state without sticky sessions
+- Accepted edits are written to Postgres before being shared with other gateways; snapshots and replay support recovery
+- Authenticated 25/50/100-client collaboration tests run through the real WebSocket path
+- AWS 100-client run achieved 100/100 convergence with 5.645 s p95 and 5.979 s p99 propagation latency
+- 108 server tests cover authentication, RBAC, persistence, fanout, recovery, and convergence
 
 ## Technology
 
-| Layer | Choice |
+| Area | Technologies |
 | --- | --- |
-| Client | React 18, Vite, CodeMirror 6, tldraw, Yjs |
-| Server | Node.js, TypeScript, `ws`, Yjs, pino |
-| Persistence | PostgreSQL, append-only operations and snapshots |
-| Coordination | Redis, BullMQ, `rate-limiter-flexible` |
-| Observability | Prometheus, Grafana, OpenTelemetry, Jaeger |
-| Delivery | Render Blueprint or Docker Compose for local infrastructure |
-| Verification | Vitest, pg-mem, ioredis-mock, k6 |
+| Frontend | React 18, Vite, CodeMirror 6, tldraw, Yjs, y-codemirror.next |
+| Backend | Node.js 20+, TypeScript, ws, Yjs, y-protocols, lib0 |
+| Data and jobs | PostgreSQL, Redis, ioredis, BullMQ, PDFKit |
+| Security | JWT, Node scrypt, origin allowlists, RBAC, parameterized SQL, Redis-backed rate limits |
+| Observability | Prometheus, Grafana, OpenTelemetry OTLP HTTP, Jaeger, Pino structured logging |
+| Local delivery | Docker Compose, Nginx, dedicated gateway and worker services |
+| Cloud delivery | AWS ALB, ECS/Fargate, ECR, RDS PostgreSQL, ElastiCache Redis, Secrets Manager, CloudWatch, IAM |
+| Verification | Vitest, pg-mem, ioredis-mock, Node/Yjs benchmark clients, k6, Docker fault injection, GitHub Actions |
 
-## Performance
+## Local development
 
-Measured locally with k6 against the in-memory server. These are reference measurements, not a production SLA.
+**Requirements:** Node.js 20+ and pnpm.
 
-| Scenario | Result |
-| --- | ---: |
-| `/health`, 50 virtual users | ~956 requests/s; p95 3.89 ms; 0% failures |
-| Rate-limit budget, 20 virtual users | 120 accepted, subsequent requests rejected; p95 2.47 ms |
-| WebSocket connection test, 25 clients | 100% success; p95 12–37 ms depending on room sharing |
+For the complete local topology (Postgres, Redis, Nginx, two gateways, worker, Prometheus, Grafana, and Jaeger):
 
-## Run locally
-
-Requirements: Node.js 20+ and pnpm.
-
-```bash
-pnpm install
-pnpm dev:server   # in-memory mode on :1234
-pnpm dev:client   # http://localhost:5173
-```
-
-Open the client in two browser tabs with the same `?page=` value and edit the same document. This path intentionally has no external dependencies.
-
-For Postgres, Redis, nginx, and observability:
-
-```bash
+~~~bash
 cp .env.example .env
 docker compose up --build -d
-```
+~~~
 
-## Deploy on Render
+For a disposable client/server demo without external services:
 
-The repository includes [`render.yaml`](render.yaml), which provisions a Node web service, a static React site, PostgreSQL, and Redis. No local Docker installation is required.
-
-1. Push the repository to GitHub.
-2. In Render, choose **New → Blueprint** and select the repository.
-3. Review the services and create the blueprint.
-4. After Render creates the services, open `collab-workspace-api` and set `ALLOWED_ORIGINS` to the final frontend URL, for example `https://collab-workspace-client.onrender.com`.
-5. Open `collab-workspace-client` and set `VITE_WS_URL` to the API WebSocket URL, for example `wss://collab-workspace-api.onrender.com/ws`.
-6. Trigger a new frontend deploy after setting `VITE_WS_URL`; Vite embeds this value at build time.
-
-For a custom domain, attach `app.example.com` to the static site and `api.example.com` to the API service, then use:
-
-```text
-ALLOWED_ORIGINS=https://app.example.com
-VITE_WS_URL=wss://api.example.com/ws
-```
-
-Keep `JWT_SECRET`, database credentials, and Redis credentials in Render-managed environment variables. Never commit `.env` or production secrets.
-
-## Testing and quality
-
-```bash
-pnpm build
-pnpm test
-```
-
-The suite covers persistence adapters, authentication, permissions, WebSocket behavior, rate limiting, and concurrent-edit convergence. The end-to-end sync tests use real WebSocket connections and the same `y-websocket` protocol used by the client. Load scripts live in [`loadtest/`](loadtest/).
-
-## Repository map
-
-```text
-packages/shared   Shared document schema and wire types
-packages/server   WebSocket gateway, auth/RBAC, persistence, jobs, telemetry
-packages/client   React editor, presence UI, comments, history, export controls
-loadtest/         k6 HTTP and WebSocket scenarios
-docs/             Design notes and operational documentation
-render.yaml       Render deployment blueprint
-docker-compose.yml Local multi-service infrastructure
-```
-
-## Design decisions
-
-- Yjs CRDTs provide deterministic convergence for concurrent edits without a central operation-transform loop.
-- Postgres is the durability boundary; Redis is coordination and fanout, not the source of truth.
-- Optional integrations are feature-gated so the core editor remains testable in memory.
-- RBAC and input validation live on the server because a client-generated update is untrusted input.
-- The deployment model is intentionally replica-safe: no sticky sessions are required for document synchronization.
-
-## Security and operability
-
-- JWT authentication is enforced by the server, with owner/editor/viewer roles checked before page mutations.
-- WebSocket upgrades support origin validation, bounded payloads, and binary protocol validation.
-- HTTP and WebSocket traffic are rate-limited; Redis makes the limiter shareable across replicas.
-- Secrets are environment-managed and excluded from Git; `.env.example` contains placeholders only.
-- Prometheus metrics, structured logs, and OpenTelemetry spans make room, persistence, and job behavior inspectable.
-
-## Known boundaries
-
-Background jobs still share the server deployment, search currently favors a portable `ILIKE` implementation over a dedicated index, and the project needs browser-level soak testing before a high-volume production launch. Calling those boundaries out is part of the design documentation, not an omission.
-
-## Roadmap
-
-- Move background workers into independently scaled services.
-- Replace `ILIKE` search with a dedicated Postgres full-text index.
-- Add sandboxed, resource-limited code execution for code blocks.
-- Add a production browser test matrix and long-running soak tests.
-
-## Contributing
-
-```bash
-cp .env.example .env
+~~~bash
 pnpm install
+NODE_ENV=development ALLOW_INSECURE_LOCAL_AUTH_BYPASS=true pnpm dev:server
+pnpm dev:client
+~~~
+
+Open [http://localhost:5173](http://localhost:5173) in two tabs and use the same `?page=` value to edit one document together. The bypass is only for local development. Normal startup requires configured Postgres, Redis, JWT, and allowed-origin settings.
+
+## Deployment
+
+### Render preview
+
+`render.yaml` defines a low-cost preview with a Node API, static React client, PostgreSQL, and Redis. After creating the Blueprint, set the API's allowed origin to the client URL and the client's WebSocket URL to the API URL. Keep JWT, database, and Redis credentials in Render-managed environment variables.
+
+### AWS staging
+
+The repository includes Terraform for a repeatable, cost-bounded AWS topology using an ALB, two ECS/Fargate gateways, RDS PostgreSQL, ElastiCache Redis, ECR, Secrets Manager, CloudWatch, and a BullMQ worker. The measured staging environment was deployed in us-east-2 for benchmark and failover evidence, then destroyed. Treat it as a disposable test environment, not an always-on production service.
+
+## Validation
+
+~~~bash
 pnpm build
 pnpm test
-```
+~~~
 
-Open an issue for design discussion or a pull request with tests for behavior changes.
+The test suite covers persistence adapters, authentication, permissions, WebSocket behavior, rate limiting, concurrent edits, Redis recovery, and worker accounting. The benchmark clients exercise authenticated binary Yjs updates through the two-gateway topology at 25, 50, and 100 concurrent clients.
+
+## Project layout
+
+~~~text
+packages/shared     Shared document schema and WebSocket message types
+packages/server      WebSocket gateway, auth/RBAC, persistence, jobs, and telemetry
+packages/client      React editor, presence, comments, history, and export controls
+loadtest/            k6 HTTP and WebSocket scenarios
+infra/aws/           Terraform AWS staging topology
+prometheus/          Prometheus scrape and alert rules
+scripts/             Benchmark, integration, backup, chaos, and deployment tooling
+render.yaml          Render deployment blueprint
+docker-compose.yml   Local multi-service development topology
+~~~
+
+## Project status
+
+DocSync is a working collaborative editing demo. The local stack and Render preview path remain available. The AWS staging environment used for the measured run has been deprovisioned. The repository does not claim production uptime, multi-AZ resilience, zero-RPO recovery, or business-level correctness from CRDT convergence alone.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT. See [LICENSE](LICENSE).
+</content>

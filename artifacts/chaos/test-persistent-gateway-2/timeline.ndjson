@@ -1,0 +1,7 @@
+{"atMs":1785964434678,"event":"baseline","service":"gateway-a","detail":""}
+{"atMs":1785964440080,"event":"workload_ready","service":"gateway-a","detail":"page=chaos-test-persistent-gateway-2"}
+{"atMs":1785964440259,"event":"fault_stop_start","service":"gateway-a","detail":""}
+{"atMs":1785964441093,"event":"fault_stopped","service":"server-a","detail":""}
+{"atMs":1785964444284,"event":"fault_restart_start","service":"server-a","detail":""}
+{"atMs":1785964445212,"event":"fault_restart_requested","service":"server-a","detail":""}
+{"atMs":1785964445495,"event":"recovery_observed","service":"server-a","detail":"http_status_200=1"}

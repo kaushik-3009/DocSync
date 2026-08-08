@@ -3,8 +3,14 @@ import {
   metricsRegistry,
   httpRequestDuration,
   wsConnectionsActive,
+  wsConnectionsTotal,
   roomsActive,
   wsMessagesTotal,
+  collabUpdatesTotal,
+  collabUpdatesPending,
+  collabUpdateDurabilitySeconds,
+  collabFanoutOutboxTotal,
+  collabFanoutOutboxPending,
   jobsCompletedTotal,
   jobsFailedTotal,
   authLoginAttemptsTotal,
@@ -21,8 +27,14 @@ describe("metrics registry", () => {
     for (const name of [
       "http_request_duration_seconds",
       "ws_connections_active",
+      "ws_connections_total",
       "rooms_active",
       "ws_messages_total",
+      "collab_updates_total",
+      "collab_updates_pending",
+      "collab_update_durability_seconds",
+      "collab_fanout_outbox_total",
+      "collab_fanout_outbox_pending",
       "jobs_completed_total",
       "jobs_failed_total",
       "auth_login_attempts_total",
@@ -37,8 +49,14 @@ describe("metrics registry", () => {
     httpRequestDuration.observe({ method: "GET", route: "/health", status: 200 }, 0.01);
     wsConnectionsActive.inc();
     wsConnectionsActive.inc();
+    wsConnectionsTotal.inc();
     roomsActive.set(3);
     wsMessagesTotal.inc();
+    collabUpdatesTotal.inc({ outcome: "durable" });
+    collabUpdatesPending.set(2);
+    collabUpdateDurabilitySeconds.observe({ outcome: "committed" }, 0.02);
+    collabFanoutOutboxTotal.inc({ outcome: "delivered" });
+    collabFanoutOutboxPending.set(1);
     jobsCompletedTotal.inc({ queue: "search-index" });
     jobsFailedTotal.inc({ queue: "pdf-export" });
     authLoginAttemptsTotal.inc({ outcome: "failure" });
@@ -46,7 +64,12 @@ describe("metrics registry", () => {
 
     const body = await metricsRegistry.metrics();
     expect(body).toContain('ws_connections_active 2');
+    expect(body).toContain('ws_connections_total 1');
     expect(body).toContain("rooms_active 3");
+    expect(body).toContain('collab_updates_total{outcome="durable"} 1');
+    expect(body).toContain("collab_updates_pending 2");
+    expect(body).toContain('collab_fanout_outbox_total{outcome="delivered"} 1');
+    expect(body).toContain("collab_fanout_outbox_pending 1");
     expect(body).toContain('jobs_completed_total{queue="search-index"} 1');
     expect(body).toContain('jobs_failed_total{queue="pdf-export"} 1');
     expect(body).toContain('auth_login_attempts_total{outcome="failure"} 1');

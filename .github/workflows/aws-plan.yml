@@ -1,0 +1,42 @@
+name: AWS Terraform validation
+
+on:
+  pull_request:
+    paths:
+      - "infra/aws/**"
+      - "scripts/deploy/aws-*.sh"
+      - ".github/workflows/aws-plan.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/aws/**"
+      - "scripts/deploy/aws-*.sh"
+      - ".github/workflows/aws-plan.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Check shell scripts
+        working-directory: .
+        run: bash -n scripts/deploy/aws-plan.sh scripts/deploy/aws-apply.sh scripts/deploy/aws-destroy.sh
+      - name: Terraform format
+        run: terraform fmt -check -recursive
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false
+      - name: Terraform validate
+        run: terraform validate
+
+# This workflow intentionally does not configure AWS credentials and never
+# runs plan/apply/destroy. A reviewed, credentialed plan remains an operator
+# action gated by docs/costs.md and scripts/deploy/aws-apply.sh.

@@ -27,11 +27,20 @@ export async function getLatestSnapshot(pool: Pool, pageId: string, uptoSeq?: nu
 
 /** All snapshot seqs for a page, newest first — the raw material for a "version history" list. */
 export async function listSnapshotSeqs(pool: Pool, pageId: string): Promise<number[]> {
-  const { rows } = await pool.query<{ seq: string }>(
+  // Snapshot rows are sparse replay checkpoints. Version history is a user
+  // feature, however, and must include every durable edit; replayAt already
+  // supports operation sequences between checkpoints. Keep the fallback for
+  // maintenance/test callers that seed a snapshot without an ops-log row.
+  const operations = await pool.query<{ seq: string }>(
+    `SELECT seq FROM ops_log WHERE page_id = $1 ORDER BY seq DESC`,
+    [pageId]
+  );
+  if (operations.rows.length > 0) return operations.rows.map((r) => Number(r.seq));
+  const snapshots = await pool.query<{ seq: string }>(
     `SELECT seq FROM snapshots WHERE page_id = $1 ORDER BY seq DESC`,
     [pageId]
   );
-  return rows.map((r) => Number(r.seq));
+  return snapshots.rows.map((r) => Number(r.seq));
 }
 
 export interface SnapshotSummary {
@@ -39,13 +48,22 @@ export interface SnapshotSummary {
   createdAt: string;
 }
 
-/** Same as `listSnapshotSeqs`, plus each snapshot's creation time — a raw seq
- *  number means nothing to a user browsing version history, a real
- *  timestamp does. */
+/** Same as `listSnapshotSeqs`, plus each version's creation time — a raw seq
+ * number means nothing to a user browsing version history, a real timestamp
+ * does. See `listSnapshotSeqs` for why operation rows take precedence over
+ * sparse snapshot checkpoints. */
 export async function listSnapshots(pool: Pool, pageId: string): Promise<SnapshotSummary[]> {
-  const { rows } = await pool.query<{ seq: string; created_at: string | Date }>(
-    `SELECT seq, created_at FROM snapshots WHERE page_id = $1 ORDER BY seq DESC`,
+  const operations = await pool.query<{ seq: string; created_at: string | Date }>(
+    `SELECT seq, created_at FROM ops_log WHERE page_id = $1 ORDER BY seq DESC`,
     [pageId]
   );
+  const rows = operations.rows.length
+    ? operations.rows
+    : (
+        await pool.query<{ seq: string; created_at: string | Date }>(
+          `SELECT seq, created_at FROM snapshots WHERE page_id = $1 ORDER BY seq DESC`,
+          [pageId]
+        )
+      ).rows;
   return rows.map((r) => ({ seq: Number(r.seq), createdAt: new Date(r.created_at).toISOString() }));
 }

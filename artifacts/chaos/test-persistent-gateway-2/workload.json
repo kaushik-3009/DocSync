@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-08-05T21:13:57.732Z",
+  "finishedAt": "2026-08-05T21:14:03.954Z",
+  "settings": {
+    "clients": 4,
+    "operationsPerClient": 2,
+    "operationIntervalMs": 250,
+    "settleMs": 2000,
+    "propagationTimeoutMs": 20000,
+    "httpBaseUrl": "http://localhost:18080",
+    "wsBaseUrl": "ws://localhost:18080",
+    "origin": "http://localhost:18080",
+    "pageId": "chaos-test-persistent-gateway-2",
+    "runId": "test-persistent-gateway-2",
+    "output": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/test-persistent-gateway-2/workload.json",
+    "readyFile": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/test-persistent-gateway-2/workload-ready.json"
+  },
+  "pageId": "chaos-test-persistent-gateway-2",
+  "mutations": {
+    "generated": [
+      "test-persistent-gateway-2-0-0",
+      "test-persistent-gateway-2-1-0",
+      "test-persistent-gateway-2-2-0",
+      "test-persistent-gateway-2-3-0",
+      "test-persistent-gateway-2-0-1",
+      "test-persistent-gateway-2-1-1",
+      "test-persistent-gateway-2-2-1",
+      "test-persistent-gateway-2-3-1"
+    ],
+    "acceptedByHarness": [
+      "test-persistent-gateway-2-0-0",
+      "test-persistent-gateway-2-1-0",
+      "test-persistent-gateway-2-2-0",
+      "test-persistent-gateway-2-3-0",
+      "test-persistent-gateway-2-0-1",
+      "test-persistent-gateway-2-1-1",
+      "test-persistent-gateway-2-2-1",
+      "test-persistent-gateway-2-3-1"
+    ],
+    "sentLive": [
+      "test-persistent-gateway-2-0-0",
+      "test-persistent-gateway-2-1-0",
+      "test-persistent-gateway-2-2-0",
+      "test-persistent-gateway-2-3-0",
+      "test-persistent-gateway-2-0-1",
+      "test-persistent-gateway-2-1-1",
+      "test-persistent-gateway-2-2-1",
+      "test-persistent-gateway-2-3-1"
+    ],
+    "records": [
+      {
+        "mutationId": "test-persistent-gateway-2-0-0",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-05T21:13:59.916Z",
+        "sentLive": true,
+        "updateFingerprint": "b7b179e23ed374a2511f3d31e76d5eef494ecc262d4fa63912fe06105717cf99"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-1-0",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-05T21:14:00.169Z",
+        "sentLive": true,
+        "updateFingerprint": "9fdba5ce7bd60fa3d645b5d59669dd32ca0ce0a0ec09086cb64dc2920094d692"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-2-0",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-05T21:14:00.421Z",
+        "sentLive": true,
+        "updateFingerprint": "26c43dd6726c2085afd6d73e849a29368749509d117b86fdabcdc98de28b2486"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-3-0",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-05T21:14:00.673Z",
+        "sentLive": true,
+        "updateFingerprint": "106a74ddb5c0ddbfa4fb37332812c8c2942a0d7e0ca4ecb0cce3979a169e5247"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-0-1",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-05T21:14:00.925Z",
+        "sentLive": true,
+        "updateFingerprint": "2e6130015eb7fd9365c70a4eb22d80d0ff74d3e00c64cae36f8f5a72a36fd19b"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-1-1",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-05T21:14:01.178Z",
+        "sentLive": true,
+        "updateFingerprint": "4635a72ae69d1bb2d7aa3925060f31d6e4fdbadb9cec25f054438470d25d6548"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-2-1",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-05T21:14:01.430Z",
+        "sentLive": true,
+        "updateFingerprint": "0f142c62584329b98321f9ef7e2eb713e568f64149b1ad98deed3b2ae71fcad5"
+      },
+      {
+        "mutationId": "test-persistent-gateway-2-3-1",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-05T21:14:01.681Z",
+        "sentLive": true,
+        "updateFingerprint": "3e53ef6b13b20d6f981363c7eead3193252bb45e82cc120834a1afa559b61b52"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "client-0",
+      "mapKeys": [
+        "test-persistent-gateway-2-0-0",
+        "test-persistent-gateway-2-0-1",
+        "test-persistent-gateway-2-1-0",
+        "test-persistent-gateway-2-1-1",
+        "test-persistent-gateway-2-2-0",
+        "test-persistent-gateway-2-2-1",
+        "test-persistent-gateway-2-3-0",
+        "test-persistent-gateway-2-3-1"
+      ],
+      "mapHash": "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-1",
+      "mapKeys": [
+        "test-persistent-gateway-2-0-0",
+        "test-persistent-gateway-2-0-1",
+        "test-persistent-gateway-2-1-0",
+        "test-persistent-gateway-2-1-1",
+        "test-persistent-gateway-2-2-0",
+        "test-persistent-gateway-2-2-1",
+        "test-persistent-gateway-2-3-0",
+        "test-persistent-gateway-2-3-1"
+      ],
+      "mapHash": "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f",
+      "reconnects": 1,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-2",
+      "mapKeys": [
+        "test-persistent-gateway-2-0-0",
+        "test-persistent-gateway-2-0-1",
+        "test-persistent-gateway-2-1-0",
+        "test-persistent-gateway-2-1-1",
+        "test-persistent-gateway-2-2-0",
+        "test-persistent-gateway-2-2-1",
+        "test-persistent-gateway-2-3-0",
+        "test-persistent-gateway-2-3-1"
+      ],
+      "mapHash": "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-3",
+      "mapKeys": [
+        "test-persistent-gateway-2-0-0",
+        "test-persistent-gateway-2-0-1",
+        "test-persistent-gateway-2-1-0",
+        "test-persistent-gateway-2-1-1",
+        "test-persistent-gateway-2-2-0",
+        "test-persistent-gateway-2-2-1",
+        "test-persistent-gateway-2-3-0",
+        "test-persistent-gateway-2-3-1"
+      ],
+      "mapHash": "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    }
+  ],
+  "convergence": {
+    "clientCount": 4,
+    "converged": true,
+    "canonicalHashes": [
+      "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f"
+    ]
+  },
+  "claimBoundary": "acceptedByHarness means a deterministic mutation intent was generated; durable/lost are calculated from the Postgres ops log by summarize-chaos.ts."
+}

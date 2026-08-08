@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "status": "failed",
+  "startedAt": "2026-08-05T20:15:07.893Z",
+  "finishedAt": "2026-08-05T20:15:23.243Z",
+  "settings": {
+    "clients": 25,
+    "operationsPerClient": 3,
+    "propagationTimeoutMs": 15000,
+    "origin": "http://localhost:8080",
+    "httpBaseUrl": "http://localhost:8080",
+    "wsBaseUrl": "ws://localhost:8080",
+    "pageId": "bench-smoke-25",
+    "runId": "smoke-25",
+    "output": "/Users/kaushik/Desktop/Projects/colab-workspace/packages/server/artifacts/benchmarks/smoke-25/client-results.json"
+  },
+  "failure": {
+    "phase": "mutation-propagation",
+    "name": "Error",
+    "message": "timed out waiting for all clients to converge",
+    "stack": "Error: timed out waiting for all clients to converge\n    at Timeout.tick (/Users/kaushik/Desktop/Projects/colab-workspace/packages/server/benchmark/collaboration.ts:122:60)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)"
+  }
+}

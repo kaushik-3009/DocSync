@@ -17,8 +17,7 @@ describe("Room + RoomRegistry with persistence", () => {
     const room1 = await registry1.getOrCreateRoom("page-a");
     createBlock(room1.doc, "b1", { type: "paragraph", text: "durable" });
 
-    // give the fire-and-forget persistence write a tick to land
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => room1.persistedSeq === 1);
     expect(room1.persistedSeq).toBe(1);
 
     // Simulate the room being evicted (process restart / another instance
@@ -44,13 +43,13 @@ describe("Room + RoomRegistry with persistence", () => {
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "original" });
     createBlock(room.doc, "b2", { type: "paragraph", text: "second block" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => room.persistedSeq === 2);
     const seqAtOriginal = room.persistedSeq;
 
     // Simulate further edits made after the version we'll restore to.
     deleteBlock(room.doc, "b2");
     createBlock(room.doc, "b3", { type: "paragraph", text: "this text should be gone after restore" });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => room.persistedSeq === 4);
     expect(serializeDocument(room.doc).map((b) => b.id)).toEqual(["b1", "b3"]);
 
     // The restore route's actual mechanism: replay the target seq into a
@@ -65,9 +64,25 @@ describe("Room + RoomRegistry with persistence", () => {
 
     // And the restore itself is durable — reloading the page from Postgres
     // from scratch reflects the restored state, not the pre-restore edits.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => room.persistedSeq === 5);
     const registry2 = new RoomRegistry(new PageStore(pool));
     const reloadedRoom = await registry2.getOrCreateRoom("page-a");
     expect(serializeDocument(reloadedRoom.doc)).toEqual(snapshotBlocks);
   });
 });
+
+function waitFor(check: () => boolean, timeoutMs = 1_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (check()) return resolve();
+    const interval = setInterval(() => {
+      if (!check()) return;
+      clearInterval(interval);
+      clearTimeout(timeout);
+      resolve();
+    }, 5);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error("timed out waiting for persisted update"));
+    }, timeoutMs);
+  });
+}

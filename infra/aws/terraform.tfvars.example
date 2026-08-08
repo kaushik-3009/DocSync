@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (which is ignored) and replace every value.
+# Keep gateway_desired_count=0 for the first apply; populate Secrets Manager,
+# then set it to 2 only during the approved, time-boxed benchmark session.
+aws_region          = "us-east-2"
+project             = "docsync"
+environment         = "staging"
+owner               = "kaushik"
+destroy_after       = "2026-08-05T23:00:00Z"
+image_uri           = "085962187693.dkr.ecr.us-east-2.amazonaws.com/docsync-staging-gateway:bootstrap"
+allowed_origin      = "https://REPLACE-client-origin"
+db_username         = "collab"
+db_password         = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
+redis_auth_token    = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
+gateway_desired_count = 0
+worker_desired_count  = 0
+ws_connect_rate_limit_points = 30

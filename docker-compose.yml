@@ -53,6 +53,7 @@ services:
       # -> server-b applying the same update) shows up as a single trace in
       # Jaeger's UI, not two unrelated ones.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      RUN_WORKERS: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +71,20 @@ services:
 
   server-b:
     <<: *server
+
+  worker:
+    <<: *server
+    command: ["pnpm", "--filter", "@collab/server", "exec", "tsx", "src/worker.ts"]
+    environment:
+      PORT: 1235
+      DATABASE_URL: postgres://${POSTGRES_USER:-collab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-collab}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      RUN_WORKERS: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"process.exit(0)\""]
+    mem_limit: 512m
+    cpus: 0.5
 
   lb:
     image: nginx:1.27-alpine
@@ -93,6 +108,7 @@ services:
     image: prom/prometheus:v2.55.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     depends_on:
       - server-a
       - server-b
@@ -111,7 +127,7 @@ services:
   # inspection, not for a real deployment), and the query UI on 16686. Not
   # required for the app to run, same as Prometheus/Grafana.
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:1.62.0
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
 

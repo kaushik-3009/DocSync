@@ -8,9 +8,17 @@
 export const MessageType = {
   Sync: 0,
   Awareness: 1,
+  /** Benchmark/evidence-only metadata sent immediately before one Sync update.
+   * Standard y-websocket clients never send this optional frame. */
+  MutationMetadata: 2,
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
+
+export interface ClientMutationMetadata {
+  mutationId: string;
+  createdAtMs: number;
+}
 
 /** Extracts the pageId from a gateway URL path like "/ws/<pageId>". */
 export function pageIdFromPath(path: string): string | null {

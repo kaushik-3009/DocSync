@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import Redis from "ioredis";
 import { context, trace } from "@opentelemetry/api";
+import * as Y from "yjs";
 import {
   serializeDocument,
   serializeDocumentWithDeltas,
@@ -15,11 +17,12 @@ import { attachWsGateway, type WsAuthConfig, type WsRateLimitConfig } from "./ws
 import { logger } from "./logger.js";
 import { runMigrations } from "./persistence/db.js";
 import { PageStore } from "./persistence/page-store.js";
+import { FanoutOutbox } from "./persistence/fanout-outbox.js";
 import { RedisRoomBroadcaster, type RoomBroadcaster } from "./redis/broadcaster.js";
 import { createUser, verifyCredentials, findUserByEmail, EmailAlreadyRegisteredError } from "./auth/users.js";
 import { signToken } from "./auth/jwt.js";
 import { authenticateRequest } from "./auth/http.js";
-import { getExistingRole, grantRole, listRoles, NotOwnerError } from "./auth/rbac.js";
+import { getExistingRole, grantRole, revokeRole, listRoles, NotOwnerError } from "./auth/rbac.js";
 import { recordAudit, listAuditLog } from "./auth/audit.js";
 import { JobQueues } from "./jobs/queues.js";
 import { startWorkers } from "./jobs/workers.js";
@@ -34,8 +37,10 @@ import {
   createWsMessageLimiter,
   tryConsume,
 } from "./rate-limit/limiters.js";
+import { loadRuntimeConfig } from "./runtime-config.js";
 
-const PORT = Number(process.env.PORT ?? 1234);
+const runtimeConfig = loadRuntimeConfig(process.env);
+const PORT = runtimeConfig.port;
 // `X-Forwarded-For` is only meaningful if it's set by a proxy this server
 // actually sits behind (nginx in this project's own docker-compose.yml) —
 // trusting it unconditionally lets any direct caller set an arbitrary IP
@@ -44,20 +49,25 @@ const PORT = Number(process.env.PORT ?? 1234);
 // fake value each time. Off by default; the deployment (nginx.conf here)
 // is expected to set TRUST_PROXY=1 precisely because it's the one thing
 // standing between the server and the internet.
-const TRUST_PROXY = process.env.TRUST_PROXY === "1";
-const DATABASE_URL = process.env.DATABASE_URL;
-const REDIS_URL = process.env.REDIS_URL;
-const JWT_SECRET = process.env.JWT_SECRET;
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const TRUST_PROXY = runtimeConfig.trustProxy;
+const DATABASE_URL = runtimeConfig.databaseUrl;
+const REDIS_URL = runtimeConfig.redisUrl;
+const JWT_SECRET = runtimeConfig.jwtSecret;
+const ALLOWED_ORIGINS = runtimeConfig.allowedOrigins;
 const MAX_HTTP_BODY_BYTES = Number(process.env.MAX_HTTP_BODY_BYTES ?? 65_536);
+const GATEWAY_ID = process.env.GATEWAY_ID?.trim() || `gateway-${process.pid}`;
 
 let pageStore: PageStore | null = null;
 let pool: Pool | null = null;
 if (DATABASE_URL) {
   pool = new Pool({ connectionString: DATABASE_URL });
+  // pg emits asynchronous client failures on the pool while an individual
+  // connection is being recycled. Without a listener Node treats that event
+  // as an uncaught error and terminates the gateway during a transient
+  // database outage, taking unrelated WebSocket rooms down with it.
+  pool.on("error", (err) => {
+    logger.error({ event: "postgres_pool_error", err }, "Postgres pool client error; retaining gateway process");
+  });
   await runMigrations(pool);
   pageStore = new PageStore(pool);
   logger.info({ event: "persistence_enabled" }, "connected to Postgres, persistence enabled");
@@ -69,6 +79,7 @@ if (DATABASE_URL) {
 }
 
 let broadcaster: RoomBroadcaster | null = null;
+let fanoutOutbox: FanoutOutbox | null = null;
 // Held at module scope (not just inside the `if` below) purely so shutdown()
 // can quit them on SIGTERM/SIGINT — see shutdown() further down.
 let broadcasterPub: Redis | null = null;
@@ -79,7 +90,13 @@ if (REDIS_URL) {
   // commands, so a single shared connection can't do both.
   broadcasterPub = new Redis(REDIS_URL);
   broadcasterSub = new Redis(REDIS_URL);
-  broadcaster = new RedisRoomBroadcaster(broadcasterPub, broadcasterSub);
+  const redisBroadcaster = new RedisRoomBroadcaster(broadcasterPub, broadcasterSub);
+  broadcaster = redisBroadcaster;
+  if (pool) {
+    fanoutOutbox = new FanoutOutbox(pool, redisBroadcaster);
+    fanoutOutbox.start();
+    logger.info({ event: "fanout_outbox_enabled" }, "transactional Postgres-to-Redis fanout outbox enabled");
+  }
   logger.info({ event: "fanout_enabled" }, "connected to Redis, cross-instance fanout enabled");
 } else {
   logger.warn(
@@ -96,15 +113,20 @@ if (REDIS_URL) {
 let jobQueues: JobQueues | null = null;
 let stopWorkers: (() => Promise<void>) | null = null;
 let jobsConnection: Redis | null = null;
+const RUN_IN_PROCESS_WORKERS = process.env.RUN_WORKERS !== "false";
 if (REDIS_URL && pool) {
   // BullMQ requires maxRetriesPerRequest: null on any connection used for its
   // blocking commands (Workers in particular) — without it, ioredis's default
   // retry behavior conflicts with how BullMQ manages long-lived blocking calls.
   jobsConnection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
   jobQueues = new JobQueues(jobsConnection);
-  const workers = startWorkers(jobsConnection, pool, pageStore!);
-  stopWorkers = workers.close;
-  logger.info({ event: "jobs_enabled" }, "background job pipeline enabled (search index, previews, PDF export)");
+  if (RUN_IN_PROCESS_WORKERS) {
+    const workers = startWorkers(jobsConnection, pool, pageStore!);
+    stopWorkers = workers.close;
+    logger.info({ event: "jobs_enabled", mode: "in_process" }, "background job pipeline enabled (search index, previews, PDF export)");
+  } else {
+    logger.info({ event: "jobs_enabled", mode: "external_worker" }, "background job queues enabled; workers run in a separate process");
+  }
 } else {
   logger.warn(
     { event: "jobs_disabled" },
@@ -117,17 +139,17 @@ if (REDIS_URL && pool) {
 // this follows pageStore's gating, not jobQueues'.
 const mentionsStore: MentionsStore | null = pool ? new MentionsStore(pool) : null;
 
-// Auth (Phase 5) requires both a JWT secret (to sign/verify tokens) and
-// Postgres (users/roles/audit log all live there) — without both, the
-// server runs exactly as Phases 1-4 did: unauthenticated, unrestricted.
+// Auth is required for normal startup. The only exception is the explicit,
+// development-only local bypass validated in runtime-config.ts.
 let auth: WsAuthConfig | null = null;
-if (JWT_SECRET && pool) {
-  auth = { jwtSecret: JWT_SECRET, pool };
+if (!runtimeConfig.insecureLocalAuthBypass) {
+  auth = { jwtSecret: JWT_SECRET!, pool: pool! };
   logger.info({ event: "auth_enabled" }, "JWT auth + RBAC enabled");
-} else if (JWT_SECRET && !pool) {
-  logger.warn({ event: "auth_disabled" }, "JWT_SECRET set but DATABASE_URL is not — auth requires Postgres, staying open");
 } else {
-  logger.warn({ event: "auth_disabled" }, "JWT_SECRET not set — running without auth, every connection is unrestricted");
+  logger.warn(
+    { event: "insecure_local_auth_bypass" },
+    "running unauthenticated because the explicit development-only local bypass is enabled"
+  );
 }
 
 // Rate limiting (Phase 7) works with or without Redis — with it, limits are shared
@@ -154,7 +176,14 @@ if (!rateLimitRedis) {
 // enqueue calls were consequently always no-ops in the real server (only
 // test/jobs.test.ts's direct processor calls exercised that logic), a real
 // pre-existing wiring bug fixed alongside adding mentionsStore below.
-const registry = new RoomRegistry(pageStore, broadcaster, jobQueues, mentionsStore);
+const registry = new RoomRegistry(
+  pageStore,
+  broadcaster,
+  jobQueues,
+  mentionsStore,
+  fanoutOutbox,
+  pool ? (pageId, userId) => getExistingRole(pool!, pageId, userId) : null
+);
 
 const VERSIONS_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/versions$/;
 const VERSION_AT_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/versions\/(\d+)$/;
@@ -222,7 +251,7 @@ function requireAuthIfEnabled(req: IncomingMessage, res: ServerResponse): { user
  *  labeling by the exact URL (with page ids/export ids embedded) would create one
  *  time series per distinct page ever touched, which defeats the point of a metric. */
 function routeLabelFor(pathname: string): string {
-  if (pathname === "/health" || pathname === "/metrics" || pathname.startsWith("/auth/") || pathname === "/search") {
+  if (pathname === "/health" || pathname === "/ready" || pathname === "/metrics" || pathname.startsWith("/auth/") || pathname === "/search") {
     return pathname;
   }
   return pathname.replace(/\/pages\/[^/]+/, "/pages/:pageId").replace(/\/exports\/[^/]+/, "/exports/:id");
@@ -241,6 +270,11 @@ const httpServer = createServer((req, res) => {
   const pathname = url.split("?")[0];
   const route = routeLabelFor(pathname);
   const start = process.hrtime.bigint();
+  const suppliedRequestId = req.headers["x-request-id"];
+  const requestId = typeof suppliedRequestId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedRequestId)
+    ? suppliedRequestId
+    : randomUUID();
+  res.setHeader("X-Request-ID", requestId);
 
   // Root span for this request — active (via context.with below) for
   // whatever handleRoute() ends up doing, so a DB write's
@@ -248,7 +282,7 @@ const httpServer = createServer((req, res) => {
   // nest under exactly the request that triggered them instead of showing
   // up as unrelated root spans in Jaeger.
   const span = tracer.startSpan("http.request", {
-    attributes: { "http.method": req.method ?? "GET", "http.route": route },
+    attributes: { "http.method": req.method ?? "GET", "http.route": route, "request.id": requestId },
   });
   const requestContext = trace.setSpan(context.active(), span);
 
@@ -288,6 +322,31 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  if (pathname === "/ready") {
+    // This intentionally checks the dependencies that make a secure gateway
+    // usable (not merely whether the Node process has an open port). It is
+    // unauthenticated so container orchestration can call it, but exposes no
+    // credentials, page identifiers, or internal error details.
+    Promise.all([
+      pool ? pool.query("SELECT 1").then(() => true).catch(() => false) : Promise.resolve(false),
+      broadcasterPub ? broadcasterPub.ping().then(() => true).catch(() => false) : Promise.resolve(false),
+    ])
+      .then(([postgres, redis]) => {
+        const ready = postgres && redis && Boolean(pageStore) && Boolean(auth);
+        sendJson(res, ready ? 200 : 503, {
+          status: ready ? "ready" : "not_ready",
+          gatewayId: GATEWAY_ID,
+          postgres,
+          redis,
+          migrationsComplete: Boolean(pageStore),
+          authEnabled: Boolean(auth),
+          workersEnabled: Boolean(jobQueues),
+        });
+      })
+      .catch((err) => handleRouteError(res, "readiness_failed", err));
+    return;
+  }
+
   if (pathname === "/metrics") {
     metricsRegistry
       .metrics()
@@ -299,7 +358,7 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
-  if (route !== "/metrics" && route !== "/health") {
+  if (route !== "/metrics" && route !== "/health" && route !== "/ready") {
     // Fire-and-forget-style rate limit check: every non-metrics/health request
     // consumes one point from the general HTTP limiter before anything else runs.
     tryConsume(httpLimiter, clientIpForHttp(req)).then(({ allowed, infraError }) => {
@@ -453,10 +512,10 @@ const httpServer = createServer((req, res) => {
     if (authResult === "unauthenticated") return;
     if (!auth || !authResult) return sendJson(res, 503, { error: "auth not enabled" });
     const pageId = rolesMatch[1];
-    readJsonBody<{ email?: string; role?: string }>(req)
+    readJsonBody<{ email?: string; role?: "editor" | "viewer" }>(req)
       .then(async ({ email, role }) => {
-        if (!email || (role !== "owner" && role !== "editor" && role !== "viewer")) {
-          return sendJson(res, 400, { error: "email and a valid role (owner|editor|viewer) are required" });
+        if (!email || (role !== "editor" && role !== "viewer")) {
+          return sendJson(res, 400, { error: "email and a valid role (editor|viewer) are required" });
         }
 
         // Ownership is checked before the grantee lookup, and a nonexistent
@@ -486,6 +545,44 @@ const httpServer = createServer((req, res) => {
       .catch((err) => {
         if (err instanceof NotOwnerError) return sendJson(res, 403, { error: err.message });
         handleRouteError(res, "grant_role_failed", err);
+      });
+    return;
+  }
+
+  if (rolesMatch && req.method === "DELETE") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!auth || !authResult) return sendJson(res, 503, { error: "auth not enabled" });
+    const pageId = rolesMatch[1];
+    readJsonBody<{ email?: string }>(req)
+      .then(async ({ email }) => {
+        if (!email) return sendJson(res, 400, { error: "email is required" });
+
+        // Check ownership before looking up the target address so this route
+        // cannot be used as a user-registration oracle by non-owners.
+        const requesterRole = await getExistingRole(auth!.pool, pageId, authResult.userId);
+        if (requesterRole !== "owner") {
+          return sendJson(res, 403, { error: "only an owner can revoke roles" });
+        }
+
+        const grantee = await findUserByEmail(auth!.pool, email);
+        if (!grantee) return sendJson(res, 200, { pageId, granteeEmail: email, revoked: false });
+
+        const revoked = await revokeRole(auth!.pool, pageId, authResult.userId, grantee.id);
+        if (revoked) {
+          registry.disconnectUser(pageId, grantee.id);
+          recordAudit(auth!.pool, {
+            userId: authResult.userId,
+            pageId,
+            event: "role_revoked",
+            metadata: { granteeEmail: email },
+          });
+        }
+        sendJson(res, 200, { pageId, granteeEmail: email, revoked });
+      })
+      .catch((err) => {
+        if (err instanceof NotOwnerError) return sendJson(res, 403, { error: err.message });
+        handleRouteError(res, "revoke_role_failed", err);
       });
     return;
   }
@@ -665,12 +762,23 @@ const httpServer = createServer((req, res) => {
           const snapshotDoc = await pageStore!.replayAt(pageId, seq);
           const snapshotBlocks = serializeDocument(snapshotDoc);
 
-          // Runs against the live Room's actual doc (created if nobody's
-          // currently connected) so the restore produces a real doc update —
-          // persistence, broadcast to any connected clients, and search
-          // reindexing all fire exactly as they would for a live edit.
+          // Construct the restore delta in a detached Doc, then submit that
+          // delta through Room's pre-commit admission queue. Mutating the live
+          // Room directly would report HTTP success before the append finishes
+          // (and would briefly expose an uncommitted state to its own process).
           const room = await registry.getOrCreateRoom(pageId);
-          room.doc.transact(() => restoreBlocksFromSnapshot(room.doc, snapshotBlocks));
+          const restoreDoc = new Y.Doc();
+          let restoreUpdate: Uint8Array | null = null;
+          try {
+            Y.applyUpdate(restoreDoc, Y.encodeStateAsUpdate(room.doc));
+            restoreDoc.on("update", (update: Uint8Array) => {
+              restoreUpdate = update;
+            });
+            restoreDoc.transact(() => restoreBlocksFromSnapshot(restoreDoc, snapshotBlocks));
+            if (restoreUpdate) await room.applyServerUpdate(restoreUpdate);
+          } finally {
+            restoreDoc.destroy();
+          }
           // If this request was the only reason the room existed (no one
           // currently connected), let it be cleaned up immediately rather
           // than sitting in memory indefinitely; a no-op while real clients
@@ -739,19 +847,38 @@ httpServer.listen(PORT, () => {
 // any fire-and-forget write still in flight (e.g. Room's doc.on("update")
 // persistence call) could be aborted mid-write by process.exit() racing it,
 // silently dropping the most recent edit's durability.
+let shutdownStarted = false;
+const SHUTDOWN_DRAIN_TIMEOUT_MS = Number(process.env.SHUTDOWN_DRAIN_TIMEOUT_MS ?? 5_000);
+
 async function shutdown(): Promise<void> {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
   logger.info({ event: "server_shutting_down" }, "shutting down");
+  // Stop accepting new upgrades/HTTP requests before freezing existing rooms.
+  // The callback is deliberately not awaited because WebSocket clients are
+  // long-lived; RoomRegistry closes them with 1012 and drains its admitted
+  // writes below.
+  httpServer.close();
+  registry.beginShutdown();
+  const roomDrainCompleted = await Promise.race([
+    registry.drainAllMutations().then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), SHUTDOWN_DRAIN_TIMEOUT_MS)),
+  ]);
+  logger.info(
+    { event: "room_shutdown_drain", completed: roomDrainCompleted, timeoutMs: SHUTDOWN_DRAIN_TIMEOUT_MS },
+    roomDrainCompleted ? "drained admitted room updates before shutdown" : "room update drain timed out; durable outcomes remain observable"
+  );
+  const outboxDrained = await fanoutOutbox?.close();
+  if (outboxDrained !== undefined) {
+    logger.info(
+      { event: "outbox_shutdown_drain", completed: outboxDrained },
+      outboxDrained ? "drained fanout outbox before shutdown" : "durable outbox rows remain for retry after shutdown"
+    );
+  }
+  registry.destroyAll();
   await stopWorkers?.();
   await jobQueues?.close();
   await shutdownTracing();
-  // Not awaited: existing WebSocket connections are long-lived by design, so
-  // http.Server#close()'s callback (which waits for every open connection to
-  // end on its own) would otherwise block shutdown indefinitely. This stops
-  // the server from accepting *new* connections/requests immediately, which
-  // is the part that matters for a clean rolling deploy; a full graceful
-  // drain of existing WS clients would need iterating and closing each
-  // Room's live sockets first, a larger change than this fixes.
-  httpServer.close();
   await Promise.all(
     [pool?.end(), broadcasterPub?.quit(), broadcasterSub?.quit(), jobsConnection?.quit(), rateLimitRedis?.quit()].map((p) =>
       p?.catch((err) => logger.error({ event: "shutdown_resource_close_failed", err }, "failed to close a resource during shutdown"))

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "runId": "publish-20260806-25c",
+  "collectedAt": "2026-08-06T04:50:53.394Z",
+  "readiness": {
+    "serverA": {
+      "httpStatus": 200,
+      "healthy": true,
+      "body": {
+        "status": "ready",
+        "gatewayId": "server-a",
+        "postgres": true,
+        "redis": true,
+        "migrationsComplete": true,
+        "authEnabled": true,
+        "workersEnabled": true
+      },
+      "error": null
+    },
+    "serverB": {
+      "httpStatus": 200,
+      "healthy": true,
+      "body": {
+        "status": "ready",
+        "gatewayId": "server-b",
+        "postgres": true,
+        "redis": true,
+        "migrationsComplete": true,
+        "authEnabled": true,
+        "workersEnabled": true
+      },
+      "error": null
+    }
+  },
+  "gateways": {
+    "serverA": {
+      "wsConnections": 12,
+      "durableUpdates": 36
+    },
+    "serverB": {
+      "wsConnections": 13,
+      "durableUpdates": 39
+    }
+  },
+  "twoReplicaParticipation": true,
+  "limitations": [
+    "This is a raw collection manifest. Resource and Prometheus time-series summarization is not implemented yet."
+  ],
+  "collectionCommandStatus": {
+    "serverAReady": 0,
+    "serverBReady": 0
+  }
+}

@@ -54,6 +54,7 @@ export function RichText({
   registryId,
   placeholder,
   peerCursors,
+  readOnly = false,
   onFocusOffset,
   onBlur,
   onKeyDown,
@@ -72,6 +73,11 @@ export function RichText({
    *  background fill across the whole block (see App.tsx's BlockRow, which
    *  is what actually knows who's editing which block). */
   peerCursors?: PeerCursor[];
+  /** Prevents local content/format mutations for a viewer while preserving
+   *  selection and remote-update rendering. The server remains authoritative
+   *  and rejects viewer writes too; this is the client-side affordance that
+   *  makes a view-only share actually feel view-only. */
+  readOnly?: boolean;
   onFocusOffset: (offset: number) => void;
   onBlur: () => void;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
@@ -192,6 +198,7 @@ export function RichText({
   }
 
   function handleInput() {
+    if (readOnly) return;
     if (!divRef.current) return;
     const newText = divRef.current.textContent ?? "";
     const oldText = ytext.toString();
@@ -220,7 +227,7 @@ export function RichText({
   }
 
   function toggleFormat(attr: "bold" | "italic") {
-    if (!selection) return;
+    if (readOnly || !selection) return;
     const active = formatActiveOverRange(ytext.toDelta() as DeltaOp[], attr, selection.start, selection.end);
     doc.transact(() => {
       ytext.format(selection.start, selection.end - selection.start, { [attr]: active ? null : true });
@@ -228,7 +235,7 @@ export function RichText({
   }
 
   function addLink() {
-    if (!selection) return;
+    if (readOnly || !selection) return;
     const url = window.prompt("Link URL:");
     if (!url) return;
     doc.transact(() => {
@@ -251,7 +258,7 @@ export function RichText({
           <span className="peer-cursor-flag">{r.name}</span>
         </span>
       ))}
-      {selection && (
+      {selection && !readOnly && (
         <div
           style={{
             position: "absolute",
@@ -293,7 +300,7 @@ export function RichText({
           divRef.current = el;
           if (registryId) registerBlockElement(registryId, el);
         }}
-        contentEditable
+        contentEditable={!readOnly}
         suppressContentEditableWarning
         data-placeholder={delta.length === 0 ? placeholder : undefined}
         className={className ? `rich-text ${className}` : "rich-text"}

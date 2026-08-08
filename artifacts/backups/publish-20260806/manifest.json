@@ -1,0 +1,1 @@
+{"schemaVersion":1,"createdAt":"2026-08-06T04:53:58Z","encryptedDump":"collab.dump.enc","checksum":"collab.dump.enc.sha256","migrationSource":"packages/server/src/persistence/migrations","redisRecovery":"Redis/BullMQ are reconstructed from Postgres state; volatile queues are not treated as durable document history."}

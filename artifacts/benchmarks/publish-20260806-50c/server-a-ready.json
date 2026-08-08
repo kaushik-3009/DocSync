@@ -1,0 +1,1 @@
+{"httpStatus":200,"body":{"status":"ready","gatewayId":"server-a","postgres":true,"redis":true,"migrationsComplete":true,"authEnabled":true,"workersEnabled":true}}

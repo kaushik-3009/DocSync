@@ -1,10 +1,12 @@
 import RedisMock from "ioredis-mock";
-import { beforeEach, describe, expect, it } from "vitest";
+import * as Y from "yjs";
+import { afterEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { createTestPool } from "./helpers/test-db.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { RedisRoomBroadcaster } from "../src/redis/broadcaster.js";
 import { PageStore } from "../src/persistence/page-store.js";
+import { Room } from "../src/room.js";
 import { getCurrentSeq } from "../src/persistence/ops-log.js";
 import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
 import type { PresenceState } from "@collab/shared";
@@ -19,10 +21,17 @@ import type { PresenceState } from "@collab/shared";
 function makeInstance(pageStore: PageStore | null = null) {
   const pub = new RedisMock();
   const sub = new RedisMock();
+  redisClients.push(pub, sub);
   const broadcaster = new RedisRoomBroadcaster(pub as never, sub as never);
   const registry = new RoomRegistry(pageStore, broadcaster);
   return { registry, broadcaster };
 }
+
+const redisClients: RedisMock[] = [];
+
+afterEach(() => {
+  for (const client of redisClients.splice(0)) client.disconnect();
+});
 
 describe("Redis pub/sub fanout across instances", () => {
   it("propagates a doc update from one instance's room to another instance's room for the same page", async () => {
@@ -77,6 +86,98 @@ describe("Redis pub/sub fanout across instances", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(await getCurrentSeq(pool, "shared-page")).toBe(1);
+  });
+
+  it("repairs an active room that receives a later committed sequence after missing an earlier Redis message", async () => {
+    const pool: Pool = await createTestPool();
+    const store = new PageStore(pool);
+    const source = new Y.Doc();
+    const updates: Uint8Array[] = [];
+    source.on("update", (update: Uint8Array) => updates.push(update));
+    createBlock(source, "b1", { type: "paragraph", text: "first durable op" });
+    createBlock(source, "b2", { type: "paragraph", text: "second durable op" });
+    await store.recordUpdate("shared-page", updates[0]!, () => Y.encodeStateAsUpdate(source));
+    await store.recordUpdate("shared-page", updates[1]!, () => Y.encodeStateAsUpdate(source));
+
+    const recoveringRoom = new Room("shared-page", new Y.Doc(), 0, store);
+    // Sequence 1 is deliberately never sent to this room. The seq=2 envelope
+    // must make it load ops 1..2 from Postgres before broadcasting locally.
+    recoveringRoom.applyRemoteUpdate(updates[1]!, 2);
+
+    await vi_waitFor(() => serializeDocument(recoveringRoom.doc).length === 2);
+    expect(recoveringRoom.persistedSeq).toBe(2);
+    expect(serializeDocument(recoveringRoom.doc).map((block) => block.id)).toEqual(["b1", "b2"]);
+  });
+
+  it("does not drop a late lower sequence after a concurrent local append", async () => {
+    const pool: Pool = await createTestPool();
+    const store = new PageStore(pool);
+    const source = new Y.Doc();
+    const updates: Uint8Array[] = [];
+    source.on("update", (update: Uint8Array) => updates.push(update));
+    createBlock(source, "b1", { type: "paragraph", text: "remote predecessor" });
+    createBlock(source, "b2", { type: "paragraph", text: "local successor" });
+
+    // Another gateway commits seq=1 before this room exists, but Redis delivery
+    // is delayed. This room then admits the independent update as seq=2 and
+    // applies it locally while its contiguous durable cursor is still zero.
+    await store.recordUpdate("shared-page", updates[0]!, () => Y.encodeStateAsUpdate(source));
+    const room = new Room("shared-page", new Y.Doc(), 0, store);
+    await room.applyServerUpdate(updates[1]!);
+
+    // The late seq=1 envelope must fill the gap rather than being treated as a
+    // duplicate merely because this room already knows that seq=2 is durable.
+    room.applyRemoteUpdate(updates[0]!, 1);
+    await vi_waitFor(() => serializeDocument(room.doc).length === 2);
+    expect(serializeDocument(room.doc).map((block) => block.id)).toEqual(["b1", "b2"]);
+    expect(room.persistedSeq).toBe(2);
+  });
+
+  it("carries the durable operation sequence in an outbox-published Redis envelope", async () => {
+    const senderPub = new RedisMock();
+    const senderSub = new RedisMock();
+    const receiverPub = new RedisMock();
+    const receiverSub = new RedisMock();
+    redisClients.push(senderPub, senderSub, receiverPub, receiverSub);
+    const sender = new RedisRoomBroadcaster(senderPub as never, senderSub as never);
+    const receiver = new RedisRoomBroadcaster(receiverPub as never, receiverSub as never);
+    const envelopeDoc = new Y.Doc();
+    createBlock(envelopeDoc, "envelope-block", { type: "paragraph", text: "valid Yjs payload" });
+    const update = Y.encodeStateAsUpdate(envelopeDoc);
+    let observed: { update: Uint8Array; seq: number | undefined } | null = null;
+    await receiver.subscribeRoom("shared-page", {
+      onUpdate: (received, seq) => {
+        observed = { update: received, seq };
+      },
+      onAwareness: () => undefined,
+    });
+
+    await sender.publishCommittedUpdate({ pageId: "shared-page", seq: 42, update, traceparent: null });
+    await vi_waitFor(() => observed !== null);
+
+    expect(observed).toEqual({ update, seq: 42 });
+  });
+
+  it("delivers a committed outbox self-echo so a non-originating claimant can reconcile its room", async () => {
+    const pub = new RedisMock();
+    const sub = new RedisMock();
+    redisClients.push(pub, sub);
+    const broadcaster = new RedisRoomBroadcaster(pub as never, sub as never);
+    const envelopeDoc = new Y.Doc();
+    createBlock(envelopeDoc, "self-echo-block", { type: "paragraph", text: "claimed by another worker" });
+    const update = Y.encodeStateAsUpdate(envelopeDoc);
+    let observed: { update: Uint8Array; seq: number | undefined } | null = null;
+    await broadcaster.subscribeRoom("shared-page", {
+      onUpdate: (received, seq) => {
+        observed = { update: received, seq };
+      },
+      onAwareness: () => undefined,
+    });
+
+    await broadcaster.publishCommittedUpdate({ pageId: "shared-page", seq: 7, update, traceparent: null });
+    await vi_waitFor(() => observed !== null);
+
+    expect(observed).toEqual({ update, seq: 7 });
   });
 });
 

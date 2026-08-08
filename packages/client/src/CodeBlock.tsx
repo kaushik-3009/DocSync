@@ -69,12 +69,14 @@ export function CodeBlock({
   provider,
   language,
   onLanguageChange,
+  readOnly = false,
 }: {
   doc: Y.Doc;
   blockId: string;
   provider: WebsocketProvider | null;
   language: CodeLanguage;
   onLanguageChange: (language: CodeLanguage) => void;
+  readOnly?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -91,6 +93,7 @@ export function CodeBlock({
       extensions: [
         lineNumbers(),
         history(),
+        EditorState.readOnly.of(readOnly),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         LANGUAGE_EXTENSIONS[language],
@@ -113,7 +116,7 @@ export function CodeBlock({
     // highlighting extension nor `EditorView.theme()` is swappable in place
     // without more plumbing, and both changing are rare enough not to
     // warrant it).
-  }, [doc, blockId, provider, language, theme]);
+  }, [doc, blockId, provider, language, theme, readOnly]);
 
   if (!provider) {
     return <div style={{ padding: "0.5rem", color: "var(--color-text-muted)", fontStyle: "italic" }}>Connecting…</div>;
@@ -126,6 +129,7 @@ export function CodeBlock({
           aria-label="code language"
           value={language}
           onChange={(e) => onLanguageChange(e.target.value as CodeLanguage)}
+          disabled={readOnly}
         >
           <option value="javascript">JavaScript</option>
           <option value="python">Python</option>

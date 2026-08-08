@@ -1,0 +1,1 @@
+{"status":"ready","gatewayId":"server-b","postgres":true,"redis":true,"migrationsComplete":true,"authEnabled":true,"workersEnabled":true}

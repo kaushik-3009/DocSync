@@ -16,6 +16,14 @@ function makeLimiter(redis: Redis | null, opts: Omit<IRateLimiterOptions, "store
     : new RateLimiterMemory(opts);
 }
 
+/** Benchmark-only overrides are supplied by the isolated compose overlay, not
+ * by the production compose file. Invalid values deliberately fall back to
+ * the secure default rather than turning a typo into an unbounded limiter. */
+function configuredPoints(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /** Brute-force protection on login: keyed by IP+email so one attacker can't lock out
  *  a victim's account by spamming failed logins under someone else's IP, and one IP
  *  can't brute-force many accounts by spreading attempts thin across emails. */
@@ -35,13 +43,16 @@ export function createRegisterLimiter(redis: Redis | null): RateLimiterAbstract 
 }
 
 /** General HTTP request limiting, keyed by IP (or userId when authenticated). */
-export function createHttpLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:http", points: 120, duration: 60 });
+export function createHttpLimiter(redis: Redis | null, points = configuredPoints(process.env.HTTP_RATE_LIMIT_POINTS, 120)): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:http", points, duration: 60 });
 }
 
 /** WebSocket connection-attempt flooding, keyed by IP, checked before the upgrade completes. */
-export function createWsConnectLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:ws-connect", points: 30, duration: 60 });
+export function createWsConnectLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.WS_CONNECT_RATE_LIMIT_POINTS, 30)
+): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:ws-connect", points, duration: 60 });
 }
 
 /** Per-connection message-flood protection. Deliberately always in-memory, never Redis:

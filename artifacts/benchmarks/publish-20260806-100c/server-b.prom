@@ -1,0 +1,300 @@
+# HELP process_cpu_user_seconds_total Total user CPU time spent in seconds.
+# TYPE process_cpu_user_seconds_total counter
+process_cpu_user_seconds_total 2.9244830000000004
+
+# HELP process_cpu_system_seconds_total Total system CPU time spent in seconds.
+# TYPE process_cpu_system_seconds_total counter
+process_cpu_system_seconds_total 0.8804859999999999
+
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 3.804969
+
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1785991819
+
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 114761728
+
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 17951940608
+
+# HELP process_heap_bytes Process heap size in bytes.
+# TYPE process_heap_bytes gauge
+process_heap_bytes 149000192
+
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 47
+
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 1048576
+
+# HELP nodejs_eventloop_lag_seconds Lag of event loop in seconds.
+# TYPE nodejs_eventloop_lag_seconds gauge
+nodejs_eventloop_lag_seconds 0.007629208
+
+# HELP nodejs_eventloop_lag_min_seconds The minimum recorded event loop delay.
+# TYPE nodejs_eventloop_lag_min_seconds gauge
+nodejs_eventloop_lag_min_seconds 0.009101312
+
+# HELP nodejs_eventloop_lag_max_seconds The maximum recorded event loop delay.
+# TYPE nodejs_eventloop_lag_max_seconds gauge
+nodejs_eventloop_lag_max_seconds 0.055410687
+
+# HELP nodejs_eventloop_lag_mean_seconds The mean of the recorded event loop delays.
+# TYPE nodejs_eventloop_lag_mean_seconds gauge
+nodejs_eventloop_lag_mean_seconds 0.011777785155080215
+
+# HELP nodejs_eventloop_lag_stddev_seconds The standard deviation of the recorded event loop delays.
+# TYPE nodejs_eventloop_lag_stddev_seconds gauge
+nodejs_eventloop_lag_stddev_seconds 0.004768195686668304
+
+# HELP nodejs_eventloop_lag_p50_seconds The 50th percentile of the recorded event loop delays.
+# TYPE nodejs_eventloop_lag_p50_seconds gauge
+nodejs_eventloop_lag_p50_seconds 0.010993663
+
+# HELP nodejs_eventloop_lag_p90_seconds The 90th percentile of the recorded event loop delays.
+# TYPE nodejs_eventloop_lag_p90_seconds gauge
+nodejs_eventloop_lag_p90_seconds 0.013000703
+
+# HELP nodejs_eventloop_lag_p99_seconds The 99th percentile of the recorded event loop delays.
+# TYPE nodejs_eventloop_lag_p99_seconds gauge
+nodejs_eventloop_lag_p99_seconds 0.045449215
+
+# HELP nodejs_active_resources Number of active resources that are currently keeping the event loop alive, grouped by async resource type.
+# TYPE nodejs_active_resources gauge
+nodejs_active_resources{type="PipeWrap"} 2
+nodejs_active_resources{type="TCPSocketWrap"} 16
+nodejs_active_resources{type="TCPServerWrap"} 1
+nodejs_active_resources{type="Timeout"} 10
+nodejs_active_resources{type="Immediate"} 1
+
+# HELP nodejs_active_resources_total Total number of active resources.
+# TYPE nodejs_active_resources_total gauge
+nodejs_active_resources_total 30
+
+# HELP nodejs_active_handles Number of active libuv handles grouped by handle type. Every handle type is C++ class name.
+# TYPE nodejs_active_handles gauge
+nodejs_active_handles{type="Socket"} 18
+nodejs_active_handles{type="Server"} 1
+
+# HELP nodejs_active_handles_total Total number of active handles.
+# TYPE nodejs_active_handles_total gauge
+nodejs_active_handles_total 19
+
+# HELP nodejs_active_requests Number of active libuv requests grouped by request type. Every request type is C++ class name.
+# TYPE nodejs_active_requests gauge
+
+# HELP nodejs_active_requests_total Total number of active requests.
+# TYPE nodejs_active_requests_total gauge
+nodejs_active_requests_total 0
+
+# HELP nodejs_heap_size_total_bytes Process heap size from Node.js in bytes.
+# TYPE nodejs_heap_size_total_bytes gauge
+nodejs_heap_size_total_bytes 43552768
+
+# HELP nodejs_heap_size_used_bytes Process heap size used from Node.js in bytes.
+# TYPE nodejs_heap_size_used_bytes gauge
+nodejs_heap_size_used_bytes 40629560
+
+# HELP nodejs_external_memory_bytes Node.js external memory size in bytes.
+# TYPE nodejs_external_memory_bytes gauge
+nodejs_external_memory_bytes 10117465
+
+# HELP nodejs_heap_space_size_total_bytes Process heap space size total from Node.js in bytes.
+# TYPE nodejs_heap_space_size_total_bytes gauge
+nodejs_heap_space_size_total_bytes{space="read_only"} 0
+nodejs_heap_space_size_total_bytes{space="new"} 2097152
+nodejs_heap_space_size_total_bytes{space="old"} 32542720
+nodejs_heap_space_size_total_bytes{space="code"} 3145728
+nodejs_heap_space_size_total_bytes{space="shared"} 0
+nodejs_heap_space_size_total_bytes{space="new_large_object"} 0
+nodejs_heap_space_size_total_bytes{space="large_object"} 5595136
+nodejs_heap_space_size_total_bytes{space="code_large_object"} 172032
+nodejs_heap_space_size_total_bytes{space="shared_large_object"} 0
+
+# HELP nodejs_heap_space_size_used_bytes Process heap space size used from Node.js in bytes.
+# TYPE nodejs_heap_space_size_used_bytes gauge
+nodejs_heap_space_size_used_bytes{space="read_only"} 0
+nodejs_heap_space_size_used_bytes{space="new"} 769168
+nodejs_heap_space_size_used_bytes{space="old"} 31318992
+nodejs_heap_space_size_used_bytes{space="code"} 2874128
+nodejs_heap_space_size_used_bytes{space="shared"} 0
+nodejs_heap_space_size_used_bytes{space="new_large_object"} 0
+nodejs_heap_space_size_used_bytes{space="large_object"} 5517000
+nodejs_heap_space_size_used_bytes{space="code_large_object"} 155296
+nodejs_heap_space_size_used_bytes{space="shared_large_object"} 0
+
+# HELP nodejs_heap_space_size_available_bytes Process heap space size available from Node.js in bytes.
+# TYPE nodejs_heap_space_size_available_bytes gauge
+nodejs_heap_space_size_available_bytes{space="read_only"} 0
+nodejs_heap_space_size_available_bytes{space="new"} 261712
+nodejs_heap_space_size_available_bytes{space="old"} 561912
+nodejs_heap_space_size_available_bytes{space="code"} 74800
+nodejs_heap_space_size_available_bytes{space="shared"} 0
+nodejs_heap_space_size_available_bytes{space="new_large_object"} 1048576
+nodejs_heap_space_size_available_bytes{space="large_object"} 0
+nodejs_heap_space_size_available_bytes{space="code_large_object"} 0
+nodejs_heap_space_size_available_bytes{space="shared_large_object"} 0
+
+# HELP nodejs_version_info Node.js version info.
+# TYPE nodejs_version_info gauge
+nodejs_version_info{version="v20.20.2",major="20",minor="20",patch="2"} 1
+
+# HELP nodejs_gc_duration_seconds Garbage collection duration by kind, one of major, minor, incremental or weakcb.
+# TYPE nodejs_gc_duration_seconds histogram
+nodejs_gc_duration_seconds_bucket{le="0.001",kind="minor"} 113
+nodejs_gc_duration_seconds_bucket{le="0.01",kind="minor"} 141
+nodejs_gc_duration_seconds_bucket{le="0.1",kind="minor"} 142
+nodejs_gc_duration_seconds_bucket{le="1",kind="minor"} 142
+nodejs_gc_duration_seconds_bucket{le="2",kind="minor"} 142
+nodejs_gc_duration_seconds_bucket{le="5",kind="minor"} 142
+nodejs_gc_duration_seconds_bucket{le="+Inf",kind="minor"} 142
+nodejs_gc_duration_seconds_sum{kind="minor"} 0.15253286599992866
+nodejs_gc_duration_seconds_count{kind="minor"} 142
+nodejs_gc_duration_seconds_bucket{le="0.001",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="0.01",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="0.1",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="1",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="2",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="5",kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="+Inf",kind="incremental"} 3
+nodejs_gc_duration_seconds_sum{kind="incremental"} 0.002357583999997587
+nodejs_gc_duration_seconds_count{kind="incremental"} 3
+nodejs_gc_duration_seconds_bucket{le="0.001",kind="major"} 0
+nodejs_gc_duration_seconds_bucket{le="0.01",kind="major"} 3
+nodejs_gc_duration_seconds_bucket{le="0.1",kind="major"} 3
+nodejs_gc_duration_seconds_bucket{le="1",kind="major"} 3
+nodejs_gc_duration_seconds_bucket{le="2",kind="major"} 3
+nodejs_gc_duration_seconds_bucket{le="5",kind="major"} 3
+nodejs_gc_duration_seconds_bucket{le="+Inf",kind="major"} 3
+nodejs_gc_duration_seconds_sum{kind="major"} 0.013643207999994047
+nodejs_gc_duration_seconds_count{kind="major"} 3
+
+# HELP http_request_duration_seconds HTTP request duration in seconds
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{le="0.005",method="GET",route="/metrics",status="200"} 1
+http_request_duration_seconds_bucket{le="0.01",method="GET",route="/metrics",status="200"} 2
+http_request_duration_seconds_bucket{le="0.025",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="0.05",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="0.1",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="0.25",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="0.5",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="1",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="2.5",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="5",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="10",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="+Inf",method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_sum{method="GET",route="/metrics",status="200"} 0.111043166
+http_request_duration_seconds_count{method="GET",route="/metrics",status="200"} 9
+http_request_duration_seconds_bucket{le="0.005",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.01",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.025",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.05",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.1",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.25",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.5",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="1",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="2.5",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="5",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="10",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="+Inf",method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_sum{method="GET",route="/health",status="200"} 0.005447458
+http_request_duration_seconds_count{method="GET",route="/health",status="200"} 4
+http_request_duration_seconds_bucket{le="0.005",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.01",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.025",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.05",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.1",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.25",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.5",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="1",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="2.5",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="5",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="10",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="+Inf",method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_sum{method="GET",route="/ready",status="200"} 0.006189708
+http_request_duration_seconds_count{method="GET",route="/ready",status="200"} 3
+http_request_duration_seconds_bucket{le="0.005",method="POST",route="/auth/register",status="201"} 0
+http_request_duration_seconds_bucket{le="0.01",method="POST",route="/auth/register",status="201"} 0
+http_request_duration_seconds_bucket{le="0.025",method="POST",route="/auth/register",status="201"} 0
+http_request_duration_seconds_bucket{le="0.05",method="POST",route="/auth/register",status="201"} 0
+http_request_duration_seconds_bucket{le="0.1",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="0.25",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="0.5",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="1",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="2.5",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="5",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="10",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_bucket{le="+Inf",method="POST",route="/auth/register",status="201"} 1
+http_request_duration_seconds_sum{method="POST",route="/auth/register",status="201"} 0.058632167
+http_request_duration_seconds_count{method="POST",route="/auth/register",status="201"} 1
+
+# HELP ws_connections_active Currently open WebSocket connections on this instance
+# TYPE ws_connections_active gauge
+ws_connections_active 0
+
+# HELP ws_connections_total WebSocket connections accepted by this gateway process
+# TYPE ws_connections_total counter
+ws_connections_total 88
+
+# HELP rooms_active Currently open Room instances (pages with at least one local connection) on this instance
+# TYPE rooms_active gauge
+rooms_active 0
+
+# HELP ws_messages_total WebSocket messages received across all rooms on this instance
+# TYPE ws_messages_total counter
+ws_messages_total 440
+
+# HELP collab_updates_total Collaboration updates by admission/durability outcome on this instance
+# TYPE collab_updates_total counter
+collab_updates_total{outcome="accepted"} 264
+collab_updates_total{outcome="durable"} 264
+
+# HELP collab_updates_pending Updates admitted to this instance and waiting for their durable outcome
+# TYPE collab_updates_pending gauge
+collab_updates_pending 0
+
+# HELP collab_update_durability_seconds Elapsed time from gateway admission to append outcome, by outcome
+# TYPE collab_update_durability_seconds histogram
+collab_update_durability_seconds_bucket{le="0.005",outcome="committed"} 0
+collab_update_durability_seconds_bucket{le="0.01",outcome="committed"} 0
+collab_update_durability_seconds_bucket{le="0.025",outcome="committed"} 1
+collab_update_durability_seconds_bucket{le="0.05",outcome="committed"} 9
+collab_update_durability_seconds_bucket{le="0.1",outcome="committed"} 30
+collab_update_durability_seconds_bucket{le="0.25",outcome="committed"} 83
+collab_update_durability_seconds_bucket{le="0.5",outcome="committed"} 145
+collab_update_durability_seconds_bucket{le="1",outcome="committed"} 205
+collab_update_durability_seconds_bucket{le="2.5",outcome="committed"} 264
+collab_update_durability_seconds_bucket{le="5",outcome="committed"} 264
+collab_update_durability_seconds_bucket{le="10",outcome="committed"} 264
+collab_update_durability_seconds_bucket{le="+Inf",outcome="committed"} 264
+collab_update_durability_seconds_sum{outcome="committed"} 153.871699684
+collab_update_durability_seconds_count{outcome="committed"} 264
+
+# HELP collab_fanout_outbox_total Transactional fanout outbox rows by delivery outcome
+# TYPE collab_fanout_outbox_total counter
+collab_fanout_outbox_total{outcome="claimed"} 234
+collab_fanout_outbox_total{outcome="delivered"} 234
+
+# HELP collab_fanout_outbox_pending Committed updates awaiting a confirmed Redis publish
+# TYPE collab_fanout_outbox_pending gauge
+collab_fanout_outbox_pending 0
+
+# HELP jobs_completed_total Background jobs completed, by queue
+# TYPE jobs_completed_total counter
+
+# HELP jobs_failed_total Background jobs failed, by queue
+# TYPE jobs_failed_total counter
+
+# HELP auth_login_attempts_total Login attempts, by outcome
+# TYPE auth_login_attempts_total counter
+
+# HELP rate_limit_rejections_total Requests/connections/messages rejected for exceeding a rate limit, by scope
+# TYPE rate_limit_rejections_total counter
+

@@ -93,6 +93,17 @@ export function fetchPageRoles(pageId: string): Promise<{ pageId: string; roles:
   return apiFetch(`/pages/${pageId}/roles`);
 }
 
+/** Grants or changes a registered collaborator's role. The server deliberately
+ * returns the same shape for an unregistered email so this client must not
+ * infer or expose account-registration status from the response. */
+export function grantPageRole(
+  pageId: string,
+  email: string,
+  role: Exclude<PageRole["role"], "owner">
+): Promise<{ pageId: string; granteeEmail: string; role: "editor" | "viewer" }> {
+  return postJson(`/pages/${pageId}/roles`, { email, role });
+}
+
 export function requestPdfExport(pageId: string): Promise<{ pageId: string; jobId: string }> {
   return apiFetch(`/pages/${pageId}/export`, { method: "POST" });
 }

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-06T04:58:00Z",
+  "screenshots": [
+    "artifacts/screenshots/docsync-editor.png",
+    "artifacts/screenshots/docsync-share-status.png",
+    "artifacts/screenshots/docsync-history.png"
+  ],
+  "realIntegration": {
+    "manifest": "artifacts/integration/publish-20260806/manifest.json",
+    "stages": [
+      "artifacts/benchmarks/publish-20260806-25c/client-results.json",
+      "artifacts/benchmarks/publish-20260806-50c/client-results.json",
+      "artifacts/benchmarks/publish-20260806-100c/client-results.json"
+    ]
+  },
+  "chaosSummaries": [
+    "artifacts/chaos/test-persistent-gateway-2/summary.json",
+    "artifacts/chaos/test-persistent-redis/summary.json",
+    "artifacts/chaos/test-persistent-postgres-2/summary.json",
+    "artifacts/chaos/worker-accounted-3/summary.json"
+  ],
+  "backup": {
+    "manifest": "artifacts/backups/publish-20260806/manifest.json",
+    "verification": "artifacts/backups/publish-20260806/restore-verification.tsv"
+  },
+  "awsTeardown": "artifacts/aws-destroy-20260806.json",
+  "claimBoundary": "These artifacts are dated local/AWS staging evidence. They do not prove production uptime, multi-AZ resilience, zero RPO, or business correctness."
+}

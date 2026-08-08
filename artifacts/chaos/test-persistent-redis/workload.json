@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-08-05T21:15:00.495Z",
+  "finishedAt": "2026-08-05T21:15:09.808Z",
+  "settings": {
+    "clients": 4,
+    "operationsPerClient": 2,
+    "operationIntervalMs": 250,
+    "settleMs": 2000,
+    "propagationTimeoutMs": 20000,
+    "httpBaseUrl": "http://localhost:18080",
+    "wsBaseUrl": "ws://localhost:18080",
+    "origin": "http://localhost:18080",
+    "pageId": "chaos-test-persistent-redis",
+    "runId": "test-persistent-redis",
+    "output": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/test-persistent-redis/workload.json",
+    "readyFile": "/Users/kaushik/Desktop/Projects/colab-workspace/artifacts/chaos/test-persistent-redis/workload-ready.json"
+  },
+  "pageId": "chaos-test-persistent-redis",
+  "mutations": {
+    "generated": [
+      "test-persistent-redis-0-0",
+      "test-persistent-redis-1-0",
+      "test-persistent-redis-2-0",
+      "test-persistent-redis-3-0",
+      "test-persistent-redis-0-1",
+      "test-persistent-redis-1-1",
+      "test-persistent-redis-2-1",
+      "test-persistent-redis-3-1"
+    ],
+    "acceptedByHarness": [
+      "test-persistent-redis-0-0",
+      "test-persistent-redis-1-0",
+      "test-persistent-redis-2-0",
+      "test-persistent-redis-3-0",
+      "test-persistent-redis-0-1",
+      "test-persistent-redis-1-1",
+      "test-persistent-redis-2-1",
+      "test-persistent-redis-3-1"
+    ],
+    "sentLive": [
+      "test-persistent-redis-0-0",
+      "test-persistent-redis-1-0",
+      "test-persistent-redis-2-0",
+      "test-persistent-redis-3-0",
+      "test-persistent-redis-0-1",
+      "test-persistent-redis-1-1",
+      "test-persistent-redis-2-1",
+      "test-persistent-redis-3-1"
+    ],
+    "records": [
+      {
+        "mutationId": "test-persistent-redis-0-0",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-05T21:15:02.778Z",
+        "sentLive": true,
+        "updateFingerprint": "dd818bc90cba40e649847787bc1a31a9ef614a6bbc3cdf70e0fc621c17024f9a"
+      },
+      {
+        "mutationId": "test-persistent-redis-1-0",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-05T21:15:03.031Z",
+        "sentLive": true,
+        "updateFingerprint": "dfffeffa6679f9ae6caf712722d95c60c6967eabf73364b8806d16b358f9a831"
+      },
+      {
+        "mutationId": "test-persistent-redis-2-0",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-05T21:15:03.282Z",
+        "sentLive": true,
+        "updateFingerprint": "adc770ad197cc2e5bcc5af12585e3726a0b8e36fe4187ba02f545531f39bafca"
+      },
+      {
+        "mutationId": "test-persistent-redis-3-0",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-05T21:15:03.534Z",
+        "sentLive": true,
+        "updateFingerprint": "979079bea68696183699d8cf4a5c442ed5706eef051b3d74b67d759fb635fc8a"
+      },
+      {
+        "mutationId": "test-persistent-redis-0-1",
+        "clientId": "client-0",
+        "generatedAt": "2026-08-05T21:15:03.786Z",
+        "sentLive": true,
+        "updateFingerprint": "b0c80c39bdfa8bb716a8d51456d4f209fda6623f3773291c5161ade28cc5bb95"
+      },
+      {
+        "mutationId": "test-persistent-redis-1-1",
+        "clientId": "client-1",
+        "generatedAt": "2026-08-05T21:15:04.038Z",
+        "sentLive": true,
+        "updateFingerprint": "5b9b338dfd4b54b889ecb3ae864a0a82a0d9b83e6b4161834c719e489fd37cff"
+      },
+      {
+        "mutationId": "test-persistent-redis-2-1",
+        "clientId": "client-2",
+        "generatedAt": "2026-08-05T21:15:04.289Z",
+        "sentLive": true,
+        "updateFingerprint": "09038f051aa8f982fd4584f038bddac4bdacddd832c5b4cf0f9d975e64304ac6"
+      },
+      {
+        "mutationId": "test-persistent-redis-3-1",
+        "clientId": "client-3",
+        "generatedAt": "2026-08-05T21:15:04.540Z",
+        "sentLive": true,
+        "updateFingerprint": "d41eac33dcb754f9c5f7e9974a52d82a29f7554c0245c179d24087e5e1bd62bc"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "client-0",
+      "mapKeys": [
+        "test-persistent-redis-0-0",
+        "test-persistent-redis-0-1",
+        "test-persistent-redis-1-0",
+        "test-persistent-redis-1-1",
+        "test-persistent-redis-2-0",
+        "test-persistent-redis-2-1",
+        "test-persistent-redis-3-0",
+        "test-persistent-redis-3-1"
+      ],
+      "mapHash": "4f31ba760dbf1da43f915ab9f8360a98cfb3e79f1330ea1b4df884e9d3a2f491",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-1",
+      "mapKeys": [
+        "test-persistent-redis-0-0",
+        "test-persistent-redis-0-1",
+        "test-persistent-redis-1-0",
+        "test-persistent-redis-1-1",
+        "test-persistent-redis-2-0",
+        "test-persistent-redis-2-1",
+        "test-persistent-redis-3-0",
+        "test-persistent-redis-3-1"
+      ],
+      "mapHash": "4f31ba760dbf1da43f915ab9f8360a98cfb3e79f1330ea1b4df884e9d3a2f491",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-2",
+      "mapKeys": [
+        "test-persistent-redis-0-0",
+        "test-persistent-redis-0-1",
+        "test-persistent-redis-1-0",
+        "test-persistent-redis-1-1",
+        "test-persistent-redis-2-0",
+        "test-persistent-redis-2-1",
+        "test-persistent-redis-3-0",
+        "test-persistent-redis-3-1"
+      ],
+      "mapHash": "4f31ba760dbf1da43f915ab9f8360a98cfb3e79f1330ea1b4df884e9d3a2f491",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    },
+    {
+      "clientId": "client-3",
+      "mapKeys": [
+        "test-persistent-redis-0-0",
+        "test-persistent-redis-0-1",
+        "test-persistent-redis-1-0",
+        "test-persistent-redis-1-1",
+        "test-persistent-redis-2-0",
+        "test-persistent-redis-2-1",
+        "test-persistent-redis-3-0",
+        "test-persistent-redis-3-1"
+      ],
+      "mapHash": "4f31ba760dbf1da43f915ab9f8360a98cfb3e79f1330ea1b4df884e9d3a2f491",
+      "reconnects": 0,
+      "socketErrors": 0,
+      "duplicateWireFrames": 0
+    }
+  ],
+  "convergence": {
+    "clientCount": 4,
+    "converged": true,
+    "canonicalHashes": [
+      "4f31ba760dbf1da43f915ab9f8360a98cfb3e79f1330ea1b4df884e9d3a2f491"
+    ]
+  },
+  "claimBoundary": "acceptedByHarness means a deterministic mutation intent was generated; durable/lost are calculated from the Postgres ops log by summarize-chaos.ts."
+}

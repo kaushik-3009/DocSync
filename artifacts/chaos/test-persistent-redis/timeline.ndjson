@@ -1,0 +1,7 @@
+{"atMs":1785964497395,"event":"baseline","service":"redis","detail":""}
+{"atMs":1785964503023,"event":"workload_ready","service":"redis","detail":"page=chaos-test-persistent-redis"}
+{"atMs":1785964503194,"event":"fault_stop_start","service":"redis","detail":""}
+{"atMs":1785964503692,"event":"fault_stopped","service":"redis","detail":""}
+{"atMs":1785964506877,"event":"fault_restart_start","service":"redis","detail":""}
+{"atMs":1785964507296,"event":"fault_restart_requested","service":"redis","detail":""}
+{"atMs":1785964507841,"event":"recovery_observed","service":"redis","detail":"http_status_200=1"}

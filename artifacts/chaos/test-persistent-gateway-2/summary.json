@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "runId": "test-persistent-gateway-2",
+  "scenario": "gateway-a",
+  "pageId": "chaos-test-persistent-gateway-2",
+  "generatedCount": 8,
+  "acceptedByHarnessCount": 8,
+  "durableCount": 8,
+  "lostCount": 0,
+  "acceptedMutationIds": [
+    "test-persistent-gateway-2-0-0",
+    "test-persistent-gateway-2-0-1",
+    "test-persistent-gateway-2-1-0",
+    "test-persistent-gateway-2-1-1",
+    "test-persistent-gateway-2-2-0",
+    "test-persistent-gateway-2-2-1",
+    "test-persistent-gateway-2-3-0",
+    "test-persistent-gateway-2-3-1"
+  ],
+  "durableMutationIds": [
+    "test-persistent-gateway-2-0-0",
+    "test-persistent-gateway-2-0-1",
+    "test-persistent-gateway-2-1-0",
+    "test-persistent-gateway-2-1-1",
+    "test-persistent-gateway-2-2-0",
+    "test-persistent-gateway-2-2-1",
+    "test-persistent-gateway-2-3-0",
+    "test-persistent-gateway-2-3-1"
+  ],
+  "lostMutationIds": [],
+  "duplicateDelivery": {
+    "durableDuplicateRows": 0,
+    "clientDuplicateWireFrames": 0,
+    "exactFingerprintRows": 8
+  },
+  "convergence": {
+    "workloadClientConverged": true,
+    "durableDocumentHash": "20761b8c8dcd189fb8f14663664f1c95ac18228829ab9d184078edb41839606f",
+    "clientHashCount": 1,
+    "durableAcceptedSetConverged": true
+  },
+  "recovery": {
+    "measuredBy": "scripts/chaos/persistent-run.sh",
+    "readinessOnly": true
+  },
+  "claimBoundary": "acceptedByHarness is a generated workload intent. durable is membership in the reconstructed Postgres Yjs document; lost is accepted minus durable. Duplicate counts are exact fingerprint row duplicates or repeated raw client wire frames, not semantic duplicate business edits.",
+  "faultStartedAt": "2026-08-05T21:14:00.218Z",
+  "recoveryObservedAt": "2026-08-05T21:14:05.464Z",
+  "injectedFaultDurationMs": 5246,
+  "recoveryProbeElapsedMs": 125,
+  "recoveredReadyEndpoint": true,
+  "workloadExitCode": 0,
+  "summaryExitCode": 0,
+  "limitations": [
+    "Readiness recovery is measured through the load balancer.",
+    "acceptedByHarness is a generated authenticated workload intent, not a server-side acknowledgement counter.",
+    "durable/lost are reconstructed from Postgres ops_log; semantic business duplicate edits are outside this report."
+  ]
+}

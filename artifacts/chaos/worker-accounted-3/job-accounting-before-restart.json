@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "pageId": "chaos-worker-accounted-3",
+  "phase": "before-restart",
+  "observedAt": "2026-08-06T02:25:58.353Z",
+  "expectedJobs": 2,
+  "completedJobs": 0,
+  "failedJobs": 0,
+  "remainingJobs": 2,
+  "unaccountedJobs": 0,
+  "terminal": false,
+  "queues": [
+    {
+      "queue": "search-index",
+      "jobId": "chaos-worker-accounted-3",
+      "state": "waiting",
+      "outputPresent": false,
+      "accountedAs": "remaining",
+      "counts": {
+        "waiting": 1,
+        "active": 0,
+        "completed": 0,
+        "failed": 0,
+        "delayed": 0,
+        "paused": 0
+      }
+    },
+    {
+      "queue": "preview",
+      "jobId": "chaos-worker-accounted-3",
+      "state": "waiting",
+      "outputPresent": false,
+      "accountedAs": "remaining",
+      "counts": {
+        "waiting": 1,
+        "active": 0,
+        "completed": 0,
+        "failed": 0,
+        "delayed": 0,
+        "paused": 0
+      }
+    }
+  ],
+  "claimBoundary": "Expected is one coalesced search-index and one preview job for this page. Completed is the processor output row; failed is the BullMQ failed state; remaining is a waiting/active/delayed/paused job. Missing Redis job and output is unaccounted, not success."
+}

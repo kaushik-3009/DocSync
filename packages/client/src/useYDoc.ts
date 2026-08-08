@@ -13,7 +13,7 @@ import {
   type PresenceState,
 } from "@collab/shared";
 import { getLocalUser } from "./localUser.js";
-import { getStoredToken, type AuthUser } from "./auth.js";
+import { clearToken, getStoredToken, type AuthUser } from "./auth.js";
 
 const SERVER_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:1234/ws";
 
@@ -32,6 +32,8 @@ export interface YDocHandle {
    *  ("Connecting…" forever) instead of telling the user they need to sign
    *  in again. */
   connectionDenied: boolean;
+  /** Why the gateway permanently refused this session, when it did. */
+  connectionDeniedReason: "auth" | "access" | null;
   localUser: { id: string; name: string; color: string };
   /** Other connected clients' presence, excluding our own. */
   peers: PresenceState[];
@@ -69,6 +71,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
   const [comments, setComments] = useState<SerializedComment[]>([]);
   const [synced, setSynced] = useState(false);
   const [connectionDenied, setConnectionDenied] = useState(false);
+  const [connectionDeniedReason, setConnectionDeniedReason] = useState<"auth" | "access" | null>(null);
   const [peers, setPeers] = useState<PresenceState[]>([]);
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
 
@@ -87,6 +90,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     setComments([]);
     setSynced(false);
     setConnectionDenied(false);
+    setConnectionDeniedReason(null);
   }
 
   useEffect(() => {
@@ -134,8 +138,8 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     const onSync = (isSynced: boolean) => setSynced(isSynced);
     nextProvider.on("sync", onSync);
 
-    // A rejection for an invalid/expired token (4401) or a denied role
-    // (4403) is permanent — retrying won't ever succeed, since neither
+    // A rejection for an invalid/expired token (4401), a denied role (4403),
+    // or a role revoked while connected (4001) is permanent — retrying won't ever succeed, since neither
     // changes without the user re-authenticating or being re-granted
     // access. y-websocket doesn't know that: left alone, it retries on a
     // fixed ~2.5s backoff cap forever. A single tab left open past its
@@ -147,9 +151,15 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     // `provider.disconnect()` does internally; it stops y-websocket's own
     // reconnect loop without tearing down anything this hook still owns.
     const onConnectionClose = (event: CloseEvent | null) => {
-      if (event?.code === 4401 || event?.code === 4403) {
+      if (event?.code === 4401 || event?.code === 4403 || event?.code === 4001) {
         nextProvider.shouldConnect = false;
         setConnectionDenied(true);
+        setConnectionDeniedReason(event.code === 4401 ? "auth" : "access");
+        // A 4401 is a credential failure, not a page-level permission
+        // decision. Remove the unusable token so App can return to its
+        // mandatory login gate; otherwise the toolbar remains apparently
+        // signed in while the socket is permanently stuck on "Sign in again".
+        if (event.code === 4401) clearToken();
       }
     };
     nextProvider.on("connection-close", onConnectionClose);
@@ -209,6 +219,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
       setProvider(null);
       setSynced(false);
       setConnectionDenied(false);
+      setConnectionDeniedReason(null);
     };
   }, [doc, pageId, localUser, enabled]);
 
@@ -258,6 +269,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     blocks,
     synced,
     connectionDenied,
+    connectionDeniedReason,
     localUser,
     peers,
     setCursor,

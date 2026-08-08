@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 2,
+  "runId": "worker-accounted-3",
+  "scenario": "worker",
+  "pageId": "chaos-worker-accounted-3",
+  "generatedCount": 8,
+  "acceptedByHarnessCount": 8,
+  "durableCount": 8,
+  "lostCount": 0,
+  "acceptedMutationIds": [
+    "worker-accounted-3-0-0",
+    "worker-accounted-3-0-1",
+    "worker-accounted-3-1-0",
+    "worker-accounted-3-1-1",
+    "worker-accounted-3-2-0",
+    "worker-accounted-3-2-1",
+    "worker-accounted-3-3-0",
+    "worker-accounted-3-3-1"
+  ],
+  "durableMutationIds": [
+    "worker-accounted-3-0-0",
+    "worker-accounted-3-0-1",
+    "worker-accounted-3-1-0",
+    "worker-accounted-3-1-1",
+    "worker-accounted-3-2-0",
+    "worker-accounted-3-2-1",
+    "worker-accounted-3-3-0",
+    "worker-accounted-3-3-1"
+  ],
+  "lostMutationIds": [],
+  "duplicateDelivery": {
+    "durableDuplicateRows": 0,
+    "clientDuplicateWireFrames": 0,
+    "exactFingerprintRows": 8
+  },
+  "convergence": {
+    "workloadClientConverged": true,
+    "durableDocumentHash": "482fd22b06ffd822940a5a908c43525195703f64a9b145bc1474f548a0bd733f",
+    "clientHashCount": 1,
+    "durableAcceptedSetConverged": true
+  },
+  "recovery": {
+    "measuredBy": "scripts/chaos/persistent-run.sh",
+    "readinessOnly": true
+  },
+  "claimBoundary": "acceptedByHarness is a generated workload intent. durable is membership in the reconstructed Postgres Yjs document; lost is accepted minus durable. Duplicate counts are exact fingerprint row duplicates or repeated raw client wire frames, not semantic duplicate business edits.",
+  "jobs": {
+    "beforeRestart": {
+      "schemaVersion": 1,
+      "pageId": "chaos-worker-accounted-3",
+      "phase": "before-restart",
+      "observedAt": "2026-08-06T02:25:58.353Z",
+      "expectedJobs": 2,
+      "completedJobs": 0,
+      "failedJobs": 0,
+      "remainingJobs": 2,
+      "unaccountedJobs": 0,
+      "terminal": false,
+      "queues": [
+        {
+          "queue": "search-index",
+          "jobId": "chaos-worker-accounted-3",
+          "state": "waiting",
+          "outputPresent": false,
+          "accountedAs": "remaining",
+          "counts": {
+            "waiting": 1,
+            "active": 0,
+            "completed": 0,
+            "failed": 0,
+            "delayed": 0,
+            "paused": 0
+          }
+        },
+        {
+          "queue": "preview",
+          "jobId": "chaos-worker-accounted-3",
+          "state": "waiting",
+          "outputPresent": false,
+          "accountedAs": "remaining",
+          "counts": {
+            "waiting": 1,
+            "active": 0,
+            "completed": 0,
+            "failed": 0,
+            "delayed": 0,
+            "paused": 0
+          }
+        }
+      ],
+      "claimBoundary": "Expected is one coalesced search-index and one preview job for this page. Completed is the processor output row; failed is the BullMQ failed state; remaining is a waiting/active/delayed/paused job. Missing Redis job and output is unaccounted, not success."
+    },
+    "afterRestart": {
+      "schemaVersion": 1,
+      "pageId": "chaos-worker-accounted-3",
+      "phase": "after-restart",
+      "observedAt": "2026-08-06T02:26:03.573Z",
+      "expectedJobs": 2,
+      "completedJobs": 2,
+      "failedJobs": 0,
+      "remainingJobs": 0,
+      "unaccountedJobs": 0,
+      "terminal": true,
+      "queues": [
+        {
+          "queue": "search-index",
+          "jobId": "chaos-worker-accounted-3",
+          "state": null,
+          "outputPresent": true,
+          "accountedAs": "completed",
+          "counts": {
+            "waiting": 0,
+            "active": 0,
+            "completed": 0,
+            "failed": 0,
+            "delayed": 0,
+            "paused": 0
+          }
+        },
+        {
+          "queue": "preview",
+          "jobId": "chaos-worker-accounted-3",
+          "state": null,
+          "outputPresent": true,
+          "accountedAs": "completed",
+          "counts": {
+            "waiting": 0,
+            "active": 0,
+            "completed": 0,
+            "failed": 0,
+            "delayed": 0,
+            "paused": 0
+          }
+        }
+      ],
+      "claimBoundary": "Expected is one coalesced search-index and one preview job for this page. Completed is the processor output row; failed is the BullMQ failed state; remaining is a waiting/active/delayed/paused job. Missing Redis job and output is unaccounted, not success."
+    },
+    "claimBoundary": "Expected is one coalesced search-index and one preview job for this page. Completed requires the processor output row; failed requires BullMQ failed state; remaining is a live waiting/active/delayed/paused job. Missing job and output is unaccounted."
+  },
+  "faultStartedAt": "2026-08-06T02:25:51.626Z",
+  "recoveryObservedAt": "2026-08-06T02:25:59.682Z",
+  "injectedFaultDurationMs": 8056,
+  "recoveryProbeElapsedMs": 107,
+  "recoveredReadyEndpoint": true,
+  "workloadExitCode": 0,
+  "summaryExitCode": 0,
+  "limitations": [
+    "Readiness recovery is measured through the load balancer.",
+    "acceptedByHarness is a generated authenticated workload intent, not a server-side acknowledgement counter.",
+    "durable/lost are reconstructed from Postgres ops_log; semantic business duplicate edits are outside this report."
+  ]
+}

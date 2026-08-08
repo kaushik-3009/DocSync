@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "status": "destroyed",
+  "date": "2026-08-06",
+  "account": "085962187693",
+  "region": "us-east-2",
+  "terraformResourcesDestroyed": 24,
+  "audit": {
+    "alb": "absent",
+    "ecsServicesAndTasks": "absent; inactive cluster metadata only",
+    "ecrRepository": "absent",
+    "rdsInstance": "absent",
+    "elasticacheReplicationGroup": "absent",
+    "cloudwatchLogGroups": "absent",
+    "secretsManagerSecret": "absent",
+    "taggedNetworkInterfaces": "absent",
+    "taggedPublicIpAllocations": "absent",
+    "rdsSnapshots": "absent",
+    "rdsAutomatedBackups": "absent"
+  },
+  "billing": {
+    "latestCostExplorerQuery": "$0.00",
+    "finalInvoice": "pending AWS reporting lag"
+  },
+  "claimBoundary": "Direct resource checks found no remaining billable DocSync staging resources; AWS billing may report delayed charges after teardown."
+}

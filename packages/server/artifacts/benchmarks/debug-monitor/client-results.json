@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-08-05T20:20:48.577Z",
+  "finishedAt": "2026-08-05T20:20:48.815Z",
+  "settings": {
+    "clients": 2,
+    "operationsPerClient": 1,
+    "propagationTimeoutMs": 3000,
+    "origin": "http://localhost:8080",
+    "httpBaseUrl": "http://localhost:8080",
+    "wsBaseUrl": "ws://localhost:8080",
+    "pageId": "bench-debug-monitor",
+    "runId": "debug-monitor",
+    "output": "/Users/kaushik/Desktop/Projects/colab-workspace/packages/server/artifacts/benchmarks/debug-monitor/client-results.json"
+  },
+  "connection": {
+    "successfulClients": 2,
+    "elapsedMs": 30,
+    "errors": 0
+  },
+  "mutations": {
+    "sent": 2,
+    "clientAcceptedUpdatesPerSecond": 35.714285714285715,
+    "convergenceElapsedMs": 56,
+    "canonicalHash": "6fd59e142e7ebad505aa8a4151bf8db3bf8c76465fdc33d5dd4483eb4b09e78d",
+    "converged": true,
+    "observationsComplete": true,
+    "observations": [
+      {
+        "clientId": "client-0",
+        "mutationId": "debug-monitor-1-0",
+        "latencyMs": 46
+      },
+      {
+        "clientId": "client-1",
+        "mutationId": "debug-monitor-0-0",
+        "latencyMs": 23
+      }
+    ],
+    "expectedPeerObservations": 2,
+    "propagationLatencyMs": {
+      "count": 2,
+      "p50": 23,
+      "p95": 46,
+      "p99": 46
+    }
+  },
+  "limitations": [
+    "clientAcceptedUpdatesPerSecond measures updates generated and converged by the clients, not Postgres durable throughput.",
+    "scripts/benchmark/collect.sh must be run for per-gateway durable counters and platform utilization before reporting a benchmark result."
+  ]
+}

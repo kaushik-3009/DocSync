@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { createTestPool } from "./helpers/test-db.js";
-import { appendOp, getOpsInRange, getCurrentSeq } from "../src/persistence/ops-log.js";
+import { appendOp, getOpsInRange, getCurrentSeq, updateFingerprint } from "../src/persistence/ops-log.js";
 import { saveSnapshot, getLatestSnapshot, listSnapshotSeqs, listSnapshots } from "../src/persistence/snapshots.js";
 import { replayDocument } from "../src/persistence/replay.js";
 import { PageStore } from "../src/persistence/page-store.js";
@@ -36,6 +36,42 @@ describe("ops-log", () => {
 
     const rest = await getOpsInRange(pool, "page-a", 3);
     expect(rest.map((o) => o.seq)).toEqual([4, 5]);
+  });
+
+  it("persists an exact-update fingerprint without changing the y-websocket wire frame", async () => {
+    const update = new Uint8Array([1, 2, 3]);
+    await appendOp(pool, "page-a", update);
+    const result = await pool.query<{ update_fingerprint: string }>(
+      "SELECT update_fingerprint FROM ops_log WHERE page_id = $1 AND seq = $2",
+      ["page-a", 1]
+    );
+
+    expect(result.rows[0]?.update_fingerprint).toBe(updateFingerprint(update));
+    expect(updateFingerprint(update)).toHaveLength(64);
+  });
+
+  it("persists optional benchmark mutation metadata beside the durable update", async () => {
+    await appendOp(pool, "page-metadata", new Uint8Array([4, 5]), {
+      enqueueFanout: true,
+      clientMutationId: "run-1-0-0",
+      clientCreatedAtMs: 1_725_000_000_000,
+      traceparent: "00-abc-def-01",
+    });
+
+    const ops = await pool.query<{ client_mutation_id: string; client_created_at_ms: string | number }>(
+      "SELECT client_mutation_id, client_created_at_ms FROM ops_log WHERE page_id = $1",
+      ["page-metadata"]
+    );
+    const outbox = await pool.query<{ client_mutation_id: string; client_created_at_ms: string | number; traceparent: string }>(
+      "SELECT client_mutation_id, client_created_at_ms, traceparent FROM fanout_outbox WHERE page_id = $1",
+      ["page-metadata"]
+    );
+
+    expect(ops.rows[0]?.client_mutation_id).toBe("run-1-0-0");
+    expect(Number(ops.rows[0]?.client_created_at_ms)).toBe(1_725_000_000_000);
+    expect(outbox.rows[0]?.client_mutation_id).toBe("run-1-0-0");
+    expect(Number(outbox.rows[0]?.client_created_at_ms)).toBe(1_725_000_000_000);
+    expect(outbox.rows[0]?.traceparent).toBe("00-abc-def-01");
   });
 });
 
@@ -96,9 +132,23 @@ describe("replayDocument", () => {
     expect(serializeDocument(atV1).map((b) => b.text)).toEqual(["v1"]);
     expect(serializeDocument(atV2).map((b) => b.text)).toEqual(["v1", "v2"]);
   });
+
 });
 
 describe("PageStore", () => {
+  it("lists every durable operation as version history, not only snapshot checkpoints", async () => {
+    const store = new PageStore(pool);
+    const doc = new Y.Doc();
+
+    for (let i = 1; i <= 2; i++) {
+      createBlock(doc, `history-${i}`, { type: "paragraph", text: `version ${i}` });
+      await store.recordUpdate("page-history", Y.encodeStateAsUpdate(doc), () => Y.encodeStateAsUpdate(doc));
+    }
+
+    expect(await store.listVersions("page-history")).toEqual([2, 1]);
+    expect((await store.listVersionDetails("page-history")).map((version) => version.seq)).toEqual([2, 1]);
+  });
+
   it("takes a snapshot every SNAPSHOT_INTERVAL ops", async () => {
     const store = new PageStore(pool);
     const doc = new Y.Doc();

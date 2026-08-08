@@ -15,6 +15,7 @@ import { createUser } from "../src/auth/users.js";
 import { MentionsStore } from "../src/comments/mentions-store.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { PageStore } from "../src/persistence/page-store.js";
+import { getCurrentSeq } from "../src/persistence/ops-log.js";
 
 describe("comments (shared Y.Doc helpers)", () => {
   it("creates, resolves, and deletes a comment anchored to a block", () => {
@@ -88,13 +89,24 @@ describe("comments sync and persist through the existing Y.Doc pipeline", () => 
     createBlock(room.doc, "b1", { type: "paragraph", text: "hello" });
     createComment(room.doc, "c1", { blockId: "b1", authorId: "u1", authorName: "Alice", text: "looks good" });
 
-    await new Promise((resolve) => setTimeout(resolve, 50)); // let fire-and-forget persistence land
+    // Wait for the durable boundary instead of sleeping a fixed interval. A
+    // parallel full-suite run can legitimately spend longer than 50ms in
+    // pg-mem; the assertion is about persisted history, not scheduler timing.
+    await waitFor(async () => (await getCurrentSeq(pool, "commented-page")) >= 2);
 
     const registryAfter = new RoomRegistry(pageStore);
     const reloaded = await registryAfter.getOrCreateRoom("commented-page");
     expect(commentsForBlock(reloaded.doc, "b1")).toMatchObject([{ text: "looks good", authorName: "Alice" }]);
   });
 });
+
+async function waitFor(check: () => Promise<boolean>, timeoutMs = 2_000): Promise<void> {
+  const started = Date.now();
+  while (!(await check())) {
+    if (Date.now() - started >= timeoutMs) throw new Error("timed out waiting for durable comment history");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe("mention indexing (MentionsStore + Room integration)", () => {
   it("records a mention only for a registered user, scoped to pages they have a role on", async () => {

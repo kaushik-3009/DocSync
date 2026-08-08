@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import * as Y from "yjs";
 import {
   createBlock,
@@ -15,6 +15,8 @@ import {
   type SerializedBlock,
   type PresenceState,
   type SerializedComment,
+  type Role,
+  canEditContent,
 } from "@collab/shared";
 import { useYDoc } from "./useYDoc.js";
 import { generatePageId } from "./pageId.js";
@@ -36,6 +38,7 @@ import { SearchOverlay } from "./SearchOverlay.js";
 import { MentionTextInput } from "./MentionTextInput.js";
 import { formatRelativeTime } from "./relativeTime.js";
 import { fetchPageRoles, requestPdfExport, getExportStatus, fetchExportBlob, fetchHealth } from "./api.js";
+import { SharePanel } from "./SharePanel.js";
 import { useTheme } from "./theme.js";
 import { useAuthUser, clearToken } from "./auth.js";
 import { LoginScreen } from "./LoginScreen.js";
@@ -79,6 +82,7 @@ export function App() {
     blocks,
     synced,
     connectionDenied,
+    connectionDeniedReason,
     localUser,
     peers,
     setCursor,
@@ -91,8 +95,16 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showSharePanel, setShowSharePanel] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [mentionEmails, setMentionEmails] = useState<string[]>([]);
+  // The gateway enforces this role on every update. Keeping the resolved role
+  // here lets the client make viewer links genuinely read-only instead of
+  // allowing edits that only appear locally and are then discarded by the
+  // server. While the role fetch is pending, auth-required pages stay
+  // conservative and render read-only until access is confirmed.
+  const [pageRole, setPageRole] = useState<Role | null>(null);
+  const canEdit = authRequired === false || canEditContent(pageRole);
   const [exportState, setExportState] = useState<"idle" | "pending" | "error">("idle");
   // Tracks which page an in-flight export poll belongs to, and lets the poll
   // interval be torn down if the user navigates away before it resolves —
@@ -110,6 +122,7 @@ export function App() {
     };
   }, [pageId]);
   const [theme, toggleTheme] = useTheme();
+  const closeSharePanel = useCallback(() => setShowSharePanel(false), []);
 
   useEffect(() => {
     fetchHealth()
@@ -135,6 +148,8 @@ export function App() {
   // would otherwise show stale content mid-transition.
   useEffect(() => {
     setShowVersionHistory(false);
+    setShowSharePanel(false);
+    setPageRole(null);
   }, [pageId]);
 
   // Powers @mention autocomplete: who can even be mentioned on *this* page.
@@ -150,18 +165,32 @@ export function App() {
   // page load. Waiting for `synced` guarantees the role row already exists.
   useEffect(() => {
     if (!synced) return;
+    if (!authUser) {
+      // Development-only guest mode has no RBAC row. The server is also
+      // running without auth in this mode, so retain the original editor
+      // behavior rather than treating every guest as a viewer.
+      if (authRequired === false) setPageRole("editor");
+      return;
+    }
     let cancelled = false;
     fetchPageRoles(pageId)
       .then((res) => {
-        if (!cancelled) setMentionEmails(res.roles.map((r) => r.email));
+        if (!cancelled) {
+          const current = res.roles.find((role) => role.userId === authUser.id);
+          setPageRole(current?.role ?? null);
+          setMentionEmails(res.roles.map((r) => r.email));
+        }
       })
       .catch(() => {
-        if (!cancelled) setMentionEmails([]);
+        if (!cancelled) {
+          setPageRole(null);
+          setMentionEmails([]);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [pageId, synced]);
+  }, [pageId, synced, authRequired, authUser]);
 
   // Cmd/Ctrl+K is the near-universal shortcut for "search" — offering it
   // alongside the toolbar button costs nothing and is what users reach for
@@ -219,13 +248,22 @@ export function App() {
   // optional infra that's simply absent without REDIS_URL/DATABASE_URL.
   function exportPdf() {
     const exportPageId = pageId;
+    if (exportPollRef.current) {
+      clearInterval(exportPollRef.current.interval);
+      exportPollRef.current = null;
+    }
     setExportState("pending");
     // Guards every state update below against having navigated away from
     // exportPageId in the meantime — see exportPollRef's declaration.
     const stillCurrent = () => exportPollRef.current?.pageId === exportPageId;
     requestPdfExport(exportPageId)
       .then((res) => {
-        const poll = setInterval(() => {
+        // Navigation can happen while the enqueue request is in flight. Do
+        // not start a poll for a page that is no longer visible; page cleanup
+        // cannot cancel a promise that resolves after it has already run.
+        if (exportPageId !== pageId) return;
+
+        const checkStatus = () => {
           getExportStatus(exportPageId, res.jobId)
             .then((status) => {
               if (status.state === "completed" && status.exportId) {
@@ -236,8 +274,15 @@ export function App() {
                   const a = document.createElement("a");
                   a.href = url;
                   a.download = `${exportPageId}.pdf`;
+                  // Revoking the object URL in the same task as click() can
+                  // cancel the download in Chromium/Firefox. Keep the anchor
+                  // attached briefly and defer revocation until navigation
+                  // has started.
+                  a.style.display = "none";
+                  document.body.appendChild(a);
                   a.click();
-                  URL.revokeObjectURL(url);
+                  a.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1_000);
                   exportPollRef.current = null;
                   setExportState("idle");
                 });
@@ -257,7 +302,8 @@ export function App() {
                 setExportState("error");
               }
             });
-        }, 1000);
+        };
+        const poll = setInterval(checkStatus, 1000);
         exportPollRef.current = { pageId: exportPageId, interval: poll };
       })
       .catch(() => {
@@ -288,7 +334,15 @@ export function App() {
             style={{ color: connectionDenied ? "var(--color-danger)" : synced ? "var(--color-accent)" : "var(--color-warning)" }}
           >
             <span className="doc-sync-dot" />
-            {connectionDenied ? "Sign in again to continue" : synced ? "Synced" : navigator.onLine ? "Reconnecting — changes may be pending" : "Offline — changes will sync when reconnected"}
+            {connectionDenied
+              ? connectionDeniedReason === "access"
+                ? "You don't have access to this page"
+                : "Sign in again to continue"
+              : synced
+                ? "Synced"
+                : navigator.onLine
+                  ? "Reconnecting — changes may be pending"
+                  : "Offline — changes will sync when reconnected"}
           </span>
           <PresenceBar localUser={localUser} peers={peers} />
           <div style={{ flex: 1 }} />
@@ -316,6 +370,9 @@ export function App() {
           <button className="toolbar-btn" onClick={copyLink}>
             {copied ? "Copied!" : copyFailed ? "Copy failed" : "Copy link"}
           </button>
+          <button className="toolbar-btn" onClick={() => setShowSharePanel(true)}>
+            Share
+          </button>
           <button className="toolbar-btn" onClick={() => setShowVersionHistory(true)}>
             History
           </button>
@@ -339,7 +396,7 @@ export function App() {
 
         <div className="doc-scroll">
           <div className="doc-page">
-            <TitleField doc={doc} firstBlockId={flatIds[0]} />
+            <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
 
             <div className="doc-body">
               {blocks.map((block) => (
@@ -357,8 +414,9 @@ export function App() {
                   addComment={addComment}
                   onToggleResolved={toggleCommentResolved}
                   onRemoveComment={removeComment}
-                  mentionEmails={mentionEmails}
-                />
+                mentionEmails={mentionEmails}
+                canEdit={canEdit}
+              />
               ))}
             </div>
           </div>
@@ -366,13 +424,21 @@ export function App() {
       </div>
 
       {showVersionHistory && <VersionHistoryPanel pageId={pageId} onClose={() => setShowVersionHistory(false)} />}
+      {showSharePanel && (
+        <SharePanel
+          pageId={pageId}
+          currentUser={authUser}
+          activeUserIds={[localUser.id, ...peers.map((peer) => peer.user.id)]}
+          onClose={closeSharePanel}
+        />
+      )}
       {showSearch && <SearchOverlay onNavigate={joinPage} onClose={() => setShowSearch(false)} />}
       {showLoginModal && <LoginScreen mandatory={false} onClose={() => setShowLoginModal(false)} />}
     </div>
   );
 }
 
-function TitleField({ doc, firstBlockId }: { doc: Y.Doc; firstBlockId: string | undefined }) {
+function TitleField({ doc, firstBlockId, readOnly }: { doc: Y.Doc; firstBlockId: string | undefined; readOnly: boolean }) {
   const titleText = useMemo(() => getTitleText(doc), [doc]);
   return (
     <RichText
@@ -381,6 +447,7 @@ function TitleField({ doc, firstBlockId }: { doc: Y.Doc; firstBlockId: string | 
       placeholder="Untitled"
       style={{ padding: "0.15rem 0.2rem", minHeight: "1.4em" }}
       className="doc-title-field"
+      readOnly={readOnly}
       onFocusOffset={() => {}}
       onBlur={() => {}}
       onKeyDown={(e) => {
@@ -452,8 +519,14 @@ function PresenceBar({
   localUser: { id: string; name: string; color: string };
   peers: PresenceState[];
 }) {
+  const activeCount = peers.length + 1;
   return (
-    <div className="presence-stack">
+    <div
+      className="presence-stack"
+      role="group"
+      aria-label={`${activeCount} ${activeCount === 1 ? "person" : "people"} currently on this page`}
+      title={`${activeCount} ${activeCount === 1 ? "person" : "people"} currently on this page`}
+    >
       {peers.map((peer) => (
         <span
           key={peer.user.id}
@@ -485,6 +558,7 @@ function BlockRow({
   onToggleResolved,
   onRemoveComment,
   mentionEmails,
+  canEdit,
 }: {
   block: SerializedBlock;
   depth: number;
@@ -499,6 +573,7 @@ function BlockRow({
   onToggleResolved: (commentId: string, resolved: boolean) => void;
   onRemoveComment: (commentId: string) => void;
   mentionEmails: string[];
+  canEdit: boolean;
 }) {
   const [showComments, setShowComments] = useState(false);
   const [slashHighlight, setSlashHighlight] = useState(0);
@@ -575,15 +650,19 @@ function BlockRow({
     <div className="block-row" style={{ marginBottom: "0.05rem" }}>
       <div className="block-row-line" style={{ marginLeft: `${depth * 1.5}rem` }}>
         <span className="block-gutter">
-          <button type="button" aria-label="insert block below" className="block-gutter-btn" onClick={insertBlockBelow}>
-            +
-          </button>
-          <BlockGutterMenu
-            commentCount={comments.length}
-            onChangeType={(type) => setBlockType(doc, block.id, type)}
-            onToggleComments={() => setShowComments((v) => !v)}
-            onDelete={() => deleteBlock(doc, block.id)}
-          />
+          {canEdit && (
+            <>
+              <button type="button" aria-label="insert block below" className="block-gutter-btn" onClick={insertBlockBelow}>
+                +
+              </button>
+              <BlockGutterMenu
+                commentCount={comments.length}
+                onChangeType={(type) => setBlockType(doc, block.id, type)}
+                onToggleComments={() => setShowComments((v) => !v)}
+                onDelete={() => deleteBlock(doc, block.id)}
+              />
+            </>
+          )}
         </span>
 
         {isTodo && (
@@ -591,6 +670,7 @@ function BlockRow({
             type="checkbox"
             aria-label={block.checked ? "Mark todo item as not done" : "Mark todo item as done"}
             checked={block.checked}
+            disabled={!canEdit}
             onChange={(e) => setBlockChecked(doc, block.id, e.target.checked)}
           />
         )}
@@ -598,11 +678,12 @@ function BlockRow({
 
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
           {block.type === "canvas" || block.type === "code" ? null : (
-            <RichText
+              <RichText
               doc={doc}
               ytext={getBlockText(doc, block.id)!}
               registryId={block.id}
-              placeholder={depth === 0 ? "Type '/' for commands" : undefined}
+                placeholder={depth === 0 ? "Type '/' for commands" : undefined}
+                readOnly={!canEdit}
               peerCursors={peerCursors}
               style={{
                 fontWeight: block.type === "heading" ? 700 : 400,
@@ -612,7 +693,7 @@ function BlockRow({
               }}
               onFocusOffset={(offset) => setCursor(block.id, offset)}
               onBlur={clearCursor}
-              onKeyDown={(e) => {
+              onKeyDown={canEdit ? (e) => {
                 if (slashQuery !== null) {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -642,10 +723,10 @@ function BlockRow({
                   prevBlockId,
                   nextBlockId,
                 });
-              }}
+              } : undefined}
             />
           )}
-          {slashQuery !== null && (
+          {canEdit && slashQuery !== null && (
             <SlashMenu query={slashQuery} highlightIndex={slashHighlight} onSelect={commitSlashCommand} />
           )}
         </div>
@@ -667,6 +748,7 @@ function BlockRow({
               provider={provider}
               language={block.language}
               onLanguageChange={(lang) => setBlockLanguage(doc, block.id, lang)}
+              readOnly={!canEdit}
             />
           </Suspense>
         </div>
@@ -680,6 +762,7 @@ function BlockRow({
             onToggleResolved={onToggleResolved}
             onRemove={onRemoveComment}
             mentionEmails={mentionEmails}
+            canEdit={canEdit}
           />
         </div>
       )}
@@ -699,6 +782,7 @@ function BlockRow({
           onToggleResolved={onToggleResolved}
           onRemoveComment={onRemoveComment}
           mentionEmails={mentionEmails}
+          canEdit={canEdit}
         />
       ))}
     </div>
@@ -709,11 +793,12 @@ function BlockRow({
  *  actual mention *indexing* (resolving to a real user, storing a queryable
  *  row) is server-side (see comments/mentions-store.ts) and doesn't care how
  *  this renders. */
-const MENTION_DISPLAY_PATTERN = /(@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+const MENTION_DISPLAY_SPLIT_PATTERN = /(@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
+const MENTION_DISPLAY_TOKEN_PATTERN = /^@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 function renderCommentText(text: string) {
-  return text.split(MENTION_DISPLAY_PATTERN).map((part, i) =>
-    MENTION_DISPLAY_PATTERN.test(part) ? (
+  return text.split(MENTION_DISPLAY_SPLIT_PATTERN).map((part, i) =>
+    MENTION_DISPLAY_TOKEN_PATTERN.test(part) ? (
       <strong key={i} style={{ color: "var(--color-link)" }}>
         {part}
       </strong>
@@ -730,6 +815,7 @@ function CommentThread({
   onToggleResolved,
   onRemove,
   mentionEmails,
+  canEdit,
 }: {
   comments: SerializedComment[];
   localUserName: string;
@@ -737,6 +823,7 @@ function CommentThread({
   onToggleResolved: (commentId: string, resolved: boolean) => void;
   onRemove: (commentId: string) => void;
   mentionEmails: string[];
+  canEdit: boolean;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -774,25 +861,31 @@ function CommentThread({
             {formatRelativeTime(c.createdAt)}
           </span>
           <span style={{ textDecoration: c.resolved ? "line-through" : "none" }}>{renderCommentText(c.text)}</span>
-          <button onClick={() => onToggleResolved(c.id, !c.resolved)} style={{ fontSize: "0.75rem" }}>
-            {c.resolved ? "unresolve" : "resolve"}
-          </button>
-          <button onClick={() => onRemove(c.id)} aria-label="delete comment" style={{ fontSize: "0.75rem" }}>
-            ×
-          </button>
+          {canEdit && (
+            <>
+              <button onClick={() => onToggleResolved(c.id, !c.resolved)} style={{ fontSize: "0.75rem" }}>
+                {c.resolved ? "unresolve" : "resolve"}
+              </button>
+              <button onClick={() => onRemove(c.id)} aria-label="delete comment" style={{ fontSize: "0.75rem" }}>
+                ×
+              </button>
+            </>
+          )}
         </div>
       ))}
-      <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem" }}>
-        <MentionTextInput
-          value={draft}
-          onChange={setDraft}
-          onSubmit={submit}
-          candidates={mentionEmails}
-          style={{ fontSize: "0.85rem" }}
-          placeholder={`Comment as ${localUserName}… (@ to mention)`}
-        />
-        <button onClick={submit}>Add</button>
-      </div>
+      {canEdit && (
+        <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem" }}>
+          <MentionTextInput
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submit}
+            candidates={mentionEmails}
+            style={{ fontSize: "0.85rem" }}
+            placeholder={`Comment as ${localUserName}… (@ to mention)`}
+          />
+          <button onClick={submit}>Add</button>
+        </div>
+      )}
     </div>
   );
 }

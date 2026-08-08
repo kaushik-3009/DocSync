@@ -1,7 +1,7 @@
 FROM node:20-alpine AS dependencies
 
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/package.json
@@ -11,7 +11,9 @@ RUN pnpm install --frozen-lockfile
 
 FROM node:20-alpine
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+RUN wget -qO /app/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/app/rds-global-bundle.pem
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=dependencies /app/packages/shared/node_modules ./packages/shared/node_modules
@@ -31,4 +33,4 @@ EXPOSE 1234
 # (or a dedicated "harden the build" pass) is the right place to introduce
 # a proper multi-stage compiled image if startup time or image size become
 # a real constraint.
-CMD ["pnpm", "--filter", "@collab/server", "exec", "tsx", "src/index.ts"]
+CMD ["/app/packages/server/node_modules/.bin/tsx", "/app/packages/server/src/index.ts"]

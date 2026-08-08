@@ -1,0 +1,28 @@
+groups:
+  - name: collab-gateway
+    rules:
+      - alert: CollabGatewayUnavailable
+        expr: up{job="collab-server"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "A collaboration gateway is unavailable" }
+      - alert: CollabMutationFailures
+        expr: increase(collab_updates_total{outcome="failed"}[5m]) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: "Durability failures detected" }
+      - alert: CollabDurabilityBacklog
+        expr: collab_updates_pending > 25 or collab_fanout_outbox_pending > 25
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Durability or fanout backlog is elevated" }
+      - alert: CollabJobFailures
+        expr: increase(jobs_failed_total[10m]) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: "Background collaboration jobs are failing" }
+      - alert: CollabAuthRejectionSpike
+        expr: increase(rate_limit_rejections_total{scope=~"login|ws_connect"}[5m]) > 50
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Authentication or WebSocket rejection spike" }

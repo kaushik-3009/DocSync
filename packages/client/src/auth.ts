@@ -40,9 +40,15 @@ function decodeTokenPayload(token: string): AuthUser | null {
  *  back to the pre-login-UI `?token=` URL convention (see docs/TESTING.md)
  *  so existing manual-testing links keep working. */
 export function getStoredToken(): string | null {
-  const stored = sessionStorage.getItem(TOKEN_KEY);
-  if (stored) return stored;
-  return new URLSearchParams(window.location.search).get("token");
+  // An explicit token in the current URL is a deliberate share/login handoff
+  // and must win over whatever this tab used previously. Without this order,
+  // opening a viewer link in a tab that already has an owner (or expired)
+  // session silently authenticates the socket as the old user and surfaces a
+  // misleading "Sign in again"/4403 state. Successful login below removes
+  // the URL token, so it cannot override the newly-issued session token.
+  const urlToken = new URLSearchParams(window.location.search).get("token");
+  if (urlToken) return urlToken;
+  return sessionStorage.getItem(TOKEN_KEY);
 }
 
 export function getAuthUser(): AuthUser | null {
@@ -52,12 +58,26 @@ export function getAuthUser(): AuthUser | null {
 
 export function storeToken(token: string): void {
   sessionStorage.setItem(TOKEN_KEY, token);
+  // Tokens are accepted in URLs for backwards-compatible manual share links,
+  // but keeping one in the address bar would make it override this fresh
+  // session on every subsequent read and unnecessarily expose it to copies,
+  // history, and referrer handling. Replace the URL without reloading.
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("token")) {
+    url.searchParams.delete("token");
+    window.history.replaceState(null, "", url.toString());
+  }
   const user = decodeTokenPayload(token);
   listeners.forEach((listener) => listener(user));
 }
 
 export function clearToken(): void {
   sessionStorage.removeItem(TOKEN_KEY);
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("token")) {
+    url.searchParams.delete("token");
+    window.history.replaceState(null, "", url.toString());
+  }
   listeners.forEach((listener) => listener(null));
 }
 

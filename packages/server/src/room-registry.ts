@@ -1,10 +1,11 @@
 import * as Y from "yjs";
-import { Room } from "./room.js";
+import { Room, type MutationAuthorizer } from "./room.js";
 import { childLogger } from "./logger.js";
 import type { PageStore } from "./persistence/page-store.js";
 import type { RoomBroadcaster } from "./redis/broadcaster.js";
 import type { JobQueues } from "./jobs/queues.js";
 import type { MentionsStore } from "./comments/mentions-store.js";
+import type { FanoutOutbox } from "./persistence/fanout-outbox.js";
 
 const log = childLogger({ module: "room-registry" });
 
@@ -28,13 +29,20 @@ const log = childLogger({ module: "room-registry" });
 export class RoomRegistry {
   private readonly rooms = new Map<string, Room>();
   private readonly pending = new Map<string, Promise<Room>>();
+  private shuttingDown = false;
 
   constructor(
     private readonly pageStore: PageStore | null = null,
     private readonly broadcaster: RoomBroadcaster | null = null,
     private readonly jobQueues: JobQueues | null = null,
-    private readonly mentionsStore: MentionsStore | null = null
-  ) {}
+    private readonly mentionsStore: MentionsStore | null = null,
+    private readonly fanoutOutbox: FanoutOutbox | null = null,
+    private readonly mutationAuthorizer: MutationAuthorizer | null = null
+  ) {
+    this.broadcaster?.setReconnectHandler?.(() => {
+      void this.reconcileAllRooms().catch((err) => log.error({ event: "redis_reconnect_reconcile_failed", err }, "failed to reconcile rooms after Redis reconnect"));
+    });
+  }
 
   async getOrCreateRoom(pageId: string): Promise<Room> {
     const existing = this.rooms.get(pageId);
@@ -56,11 +64,21 @@ export class RoomRegistry {
 
   private async createRoom(pageId: string): Promise<Room> {
     const { doc, seq } = this.pageStore ? await this.pageStore.loadPage(pageId) : { doc: new Y.Doc(), seq: 0 };
-    const room = new Room(pageId, doc, seq, this.pageStore, this.broadcaster, this.jobQueues, this.mentionsStore);
+    const room = new Room(
+      pageId,
+      doc,
+      seq,
+      this.pageStore,
+      this.broadcaster,
+      this.jobQueues,
+      this.mentionsStore,
+      this.fanoutOutbox,
+      this.mutationAuthorizer
+    );
 
     if (this.broadcaster) {
       await this.broadcaster.subscribeRoom(pageId, {
-        onUpdate: (update) => room.applyRemoteUpdate(update),
+        onUpdate: (update, seq) => room.applyRemoteUpdate(update, seq),
         onAwareness: (encoded) => room.applyRemoteAwareness(encoded),
       });
     }
@@ -72,7 +90,7 @@ export class RoomRegistry {
   /** Call after a connection is removed; drops the room once nobody is left. */
   releaseRoom(pageId: string): void {
     const room = this.rooms.get(pageId);
-    if (room && room.connectionCount === 0) {
+    if (room && room.connectionCount === 0 && !this.shuttingDown) {
       this.rooms.delete(pageId);
       this.broadcaster?.unsubscribeRoom(pageId);
       room.destroy();
@@ -90,6 +108,32 @@ export class RoomRegistry {
 
   disconnectUser(pageId: string, userId: string): void {
     this.rooms.get(pageId)?.disconnectUser(userId);
+  }
+
+  /** Freeze every active room before a rolling restart. Existing clients get
+   * 1012 and no later frame can enter a durable queue. */
+  beginShutdown(): void {
+    this.shuttingDown = true;
+    for (const room of this.rooms.values()) room.beginShutdown();
+  }
+
+  async drainAllMutations(): Promise<void> {
+    await Promise.all(Array.from(this.rooms.values(), (room) => room.flushDurableUpdates()));
+  }
+
+  async reconcileAllRooms(): Promise<void> {
+    await Promise.all(Array.from(this.rooms.values(), (room) => room.reconcileFromStore()));
+  }
+
+  /** Called after a completed/expired shutdown drain, not during normal room
+   * release. The process exits immediately afterward, so no re-subscription
+   * is needed. */
+  destroyAll(): void {
+    for (const [pageId, room] of this.rooms) {
+      this.broadcaster?.unsubscribeRoom(pageId);
+      room.destroy();
+    }
+    this.rooms.clear();
   }
 
   /** Non-creating lookup — for read-only endpoints (e.g. presence) that must never spin up an empty room. */

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "runId": "publish-20260806",
+  "startedAt": "2026-08-06T04:49:39Z",
+  "finishedAt": "2026-08-06T04:51:04.372Z",
+  "topology": "nginx + two gateways + Postgres + Redis + dedicated BullMQ worker",
+  "stages": [
+    {
+      "runId": "publish-20260806-25c",
+      "clientResults": "artifacts/benchmarks/publish-20260806-25c/client-results.json",
+      "collection": "artifacts/benchmarks/publish-20260806-25c/collection-summary.json"
+    },
+    {
+      "runId": "publish-20260806-50c",
+      "clientResults": "artifacts/benchmarks/publish-20260806-50c/client-results.json",
+      "collection": "artifacts/benchmarks/publish-20260806-50c/collection-summary.json"
+    },
+    {
+      "runId": "publish-20260806-100c",
+      "clientResults": "artifacts/benchmarks/publish-20260806-100c/client-results.json",
+      "collection": "artifacts/benchmarks/publish-20260806-100c/collection-summary.json"
+    }
+  ],
+  "claims": [
+    "real authenticated Yjs wire protocol exercised through nginx",
+    "both gateway participation required for a passing stage",
+    "durable/recovery claims require the separate chaos and backup gates"
+  ],
+  "unitSuite": "pnpm --filter @collab/server test"
+}

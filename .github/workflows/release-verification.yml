@@ -1,0 +1,30 @@
+name: Release verification
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - name: Validate operational scripts
+        run: bash -n scripts/test-integration.sh scripts/backup/*.sh scripts/benchmark/*.sh scripts/chaos/*.sh
+      - name: Validate Compose and Terraform syntax
+        run: |
+          docker compose --env-file .env.example -f docker-compose.yml config >/tmp/compose.yml
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.benchmark.yml config >/tmp/benchmark-compose.yml
+          terraform -chdir=infra/aws fmt -check -recursive
+          terraform -chdir=infra/aws validate

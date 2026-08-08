@@ -30,6 +30,15 @@ export const wsConnectionsActive = new Gauge({
   registers: [metricsRegistry],
 });
 
+/** Monotonic evidence that a gateway accepted WebSocket connections. Unlike
+ * the active-connection gauge, this remains useful after a benchmark closes
+ * its clients and lets the harness prove both replicas participated. */
+export const wsConnectionsTotal = new Counter({
+  name: "ws_connections_total",
+  help: "WebSocket connections accepted by this gateway process",
+  registers: [metricsRegistry],
+});
+
 export const roomsActive = new Gauge({
   name: "rooms_active",
   help: "Currently open Room instances (pages with at least one local connection) on this instance",
@@ -39,6 +48,41 @@ export const roomsActive = new Gauge({
 export const wsMessagesTotal = new Counter({
   name: "ws_messages_total",
   help: "WebSocket messages received across all rooms on this instance",
+  registers: [metricsRegistry],
+});
+
+/** Mutation lifecycle counts deliberately have no page/user label: either
+ * value would make a public metrics endpoint a high-cardinality data leak. */
+export const collabUpdatesTotal = new Counter({
+  name: "collab_updates_total",
+  help: "Collaboration updates by admission/durability outcome on this instance",
+  labelNames: ["outcome"], // accepted | durable | failed | in_memory_applied
+  registers: [metricsRegistry],
+});
+
+export const collabUpdatesPending = new Gauge({
+  name: "collab_updates_pending",
+  help: "Updates admitted to this instance and waiting for their durable outcome",
+  registers: [metricsRegistry],
+});
+
+export const collabUpdateDurabilitySeconds = new Histogram({
+  name: "collab_update_durability_seconds",
+  help: "Elapsed time from gateway admission to append outcome, by outcome",
+  labelNames: ["outcome"], // committed | failed | in_memory
+  registers: [metricsRegistry],
+});
+
+export const collabFanoutOutboxTotal = new Counter({
+  name: "collab_fanout_outbox_total",
+  help: "Transactional fanout outbox rows by delivery outcome",
+  labelNames: ["outcome"], // claimed | delivered | failed
+  registers: [metricsRegistry],
+});
+
+export const collabFanoutOutboxPending = new Gauge({
+  name: "collab_fanout_outbox_pending",
+  help: "Committed updates awaiting a confirmed Redis publish",
   registers: [metricsRegistry],
 });
 

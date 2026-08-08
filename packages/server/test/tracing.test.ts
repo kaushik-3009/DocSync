@@ -1,5 +1,5 @@
 import RedisMock from "ioredis-mock";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { context, trace } from "@opentelemetry/api";
 import { createBlock } from "@collab/shared";
 import { createTestPool } from "./helpers/test-db.js";
@@ -18,8 +18,14 @@ import { traced } from "../src/jobs/workers.js";
  * root spans.
  */
 describe("distributed tracing", () => {
+  const redisClients: RedisMock[] = [];
+
   beforeEach(() => {
     testSpanExporter.reset();
+  });
+
+  afterEach(() => {
+    for (const client of redisClients.splice(0)) client.disconnect();
   });
 
   it("nests a persisted doc update's persistence span under the room's doc_update span", async () => {
@@ -69,11 +75,13 @@ describe("distributed tracing", () => {
   it("continues the same trace across a Redis-fanned-out update to another instance (cross-process)", async () => {
     const pub = new RedisMock();
     const sub = new RedisMock();
+    redisClients.push(pub, sub);
     const broadcasterA = new RedisRoomBroadcaster(pub as never, sub as never);
     const registryA = new RoomRegistry(null, broadcasterA);
 
     const pub2 = new RedisMock();
     const sub2 = new RedisMock();
+    redisClients.push(pub2, sub2);
     const broadcasterB = new RedisRoomBroadcaster(pub2 as never, sub2 as never);
     const registryB = new RoomRegistry(null, broadcasterB);
 

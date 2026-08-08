@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
+import * as Y from "yjs";
 import { RoomRegistry } from "../src/room-registry.js";
+import { PageStore } from "../src/persistence/page-store.js";
+import { createTestPool } from "./helpers/test-db.js";
+import type { RoomBroadcaster } from "../src/redis/broadcaster.js";
+import { createBlock, serializeDocument } from "@collab/shared";
 
 describe("RoomRegistry", () => {
   it("creates a room lazily and reuses it for the same pageId", async () => {
@@ -46,4 +51,37 @@ describe("RoomRegistry", () => {
     registry.releaseRoom("page-a");
     expect(registry.has("page-a")).toBe(true);
   });
+
+  it("reconciles quiet active rooms when the broadcaster reports a Redis reconnect", async () => {
+    const pool = await createTestPool();
+    const store = new PageStore(pool);
+    let reconnect: (() => void) | undefined;
+    const broadcaster: RoomBroadcaster = {
+      publishUpdate: () => undefined,
+      publishAwareness: () => undefined,
+      subscribeRoom: async () => undefined,
+      unsubscribeRoom: () => undefined,
+      setReconnectHandler: (handler) => {
+        reconnect = handler;
+      },
+    };
+    const registry = new RoomRegistry(store, broadcaster);
+    const room = await registry.getOrCreateRoom("page-a");
+    const source = new Y.Doc();
+    createBlock(source, "b1", { type: "paragraph", text: "missed while Redis was down" });
+    const update = Y.encodeStateAsUpdate(source);
+    await store.recordUpdate("page-a", update, () => update);
+
+    reconnect!();
+    await waitFor(() => serializeDocument(room.doc).length === 1);
+    expect(room.persistedSeq).toBe(1);
+  });
 });
+
+async function waitFor(check: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() >= deadline) throw new Error("timed out waiting for room reconciliation");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}

@@ -1,0 +1,8 @@
+{"atMs":1785983147401,"event":"baseline","service":"worker","detail":""}
+{"atMs":1785983151513,"event":"workload_ready","service":"worker","detail":"page=chaos-worker-accounted-3"}
+{"atMs":1785983151654,"event":"fault_stop_start","service":"worker","detail":""}
+{"atMs":1785983152274,"event":"fault_stopped","service":"worker","detail":""}
+{"atMs":1785983158407,"event":"job_accounting_before_restart_nonterminal","service":"worker","detail":"exit=2"}
+{"atMs":1785983158524,"event":"fault_restart_start","service":"worker","detail":""}
+{"atMs":1785983159437,"event":"fault_restart_requested","service":"worker","detail":""}
+{"atMs":1785983159714,"event":"recovery_observed","service":"worker","detail":"http_status_200=1"}

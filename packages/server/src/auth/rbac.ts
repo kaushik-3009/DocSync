@@ -15,43 +15,64 @@ export async function getExistingRole(pool: Pool, pageId: string, userId: string
 }
 
 /**
- * Resolves the role a connecting user has on a page, bootstrapping ownership
- * for brand-new (zero-role) pages and auto-enrolling anyone else as an
- * editor. A page is "unclaimed" until its first role row exists; the first
- * person to open it via the WebSocket gateway becomes its owner. Any other
- * signed-in account that opens the same page link afterward gets an editor
- * row created on the spot — this is meant to work like a shared document
- * link (whoever has it can open and edit), not an invite-only page; "owner"
- * is just whoever got there first, kept distinct so page-role management
- * (grantRole/audit log) still has a single accountable admin per page.
- * Explicitly downgrading someone back to viewer, or off a page entirely, is
- * still the owner's call via grantRole.
- *
- * Neither insert is wrapped in a serializable transaction: a race between
- * two simultaneous first-opens of a new page would (at worst) both insert
- * 'owner' rows for two different users, which just means two owners instead
- * of one — not a security hole, since both are still legitimately "whoever
- * got here first." Worth revisiting if this ever needs single-owner
- * guarantees under real concurrency.
+ * Resolves the role a connecting user has on a page. A newly opened page is
+ * claimed exactly once by atomically inserting its `page_claims` row; that
+ * claimant becomes its owner. Once claimed, access is invite-only: users
+ * without an existing page_roles row receive null and the gateway rejects
+ * their connection. The claim row, rather than a read-then-insert over
+ * page_roles, closes the first-open race that could otherwise create two
+ * owners under concurrent WebSocket connections.
  */
 export async function resolveRoleForConnection(pool: Pool, pageId: string, userId: string): Promise<Role | null> {
   const existing = await getExistingRole(pool, pageId, userId);
   if (existing) return existing;
 
-  const anyRole = await pool.query("SELECT 1 FROM page_roles WHERE page_id = $1 LIMIT 1", [pageId]);
-  if ((anyRole.rowCount ?? 0) === 0) {
-    await pool.query(
-      "INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING",
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Re-check after beginning the transaction: an owner can grant this user
+    // access after the fast-path lookup above but before this connection's
+    // claim attempt.
+    const roleResult = await client.query<{ role: Role }>(
+      "SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2",
       [pageId, userId]
     );
-    return "owner";
-  }
+    const grantedRole = roleResult.rows[0]?.role;
+    if (grantedRole) {
+      await client.query("COMMIT");
+      return grantedRole;
+    }
 
-  await pool.query(
-    "INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor') ON CONFLICT DO NOTHING",
-    [pageId, userId]
-  );
-  return "editor";
+    await client.query(
+      `INSERT INTO page_claims (page_id, owner_user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (page_id) DO NOTHING`,
+      [pageId, userId]
+    );
+    const claim = await client.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM page_claims WHERE page_id = $1",
+      [pageId]
+    );
+    if (claim.rows[0]?.owner_user_id === userId) {
+      await client.query(
+        "INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT (page_id, user_id) DO NOTHING",
+        [pageId, userId]
+      );
+      await client.query("COMMIT");
+      return "owner";
+    }
+
+    // A page claim already exists and the user has no invitation. Do not
+    // create a role as a side effect of merely knowing its identifier.
+    await client.query("COMMIT");
+    return null;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export class NotOwnerError extends Error {
@@ -61,7 +82,15 @@ export class NotOwnerError extends Error {
   }
 }
 
-/** Grants (or updates) a role for a user on a page. Only an existing owner may call this. */
+/** Raised when an owner-management call attempts to create or transfer ownership. */
+export class OwnerRoleGrantNotAllowedError extends Error {
+  constructor(pageId: string) {
+    super(`ownership for page ${pageId} is established only by its initial claim`);
+    this.name = "OwnerRoleGrantNotAllowedError";
+  }
+}
+
+/** Grants (or updates) editor/viewer access for a page. Ownership is immutable after the initial claim. */
 export async function grantRole(
   pool: Pool,
   pageId: string,
@@ -69,6 +98,8 @@ export async function grantRole(
   granteeUserId: string,
   role: Role
 ): Promise<void> {
+  if (role === "owner") throw new OwnerRoleGrantNotAllowedError(pageId);
+
   const granterRole = await getExistingRole(pool, pageId, granterId);
   if (granterRole !== "owner") throw new NotOwnerError(pageId);
 
@@ -77,6 +108,22 @@ export async function grantRole(
      ON CONFLICT (page_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
     [pageId, granteeUserId, role]
   );
+}
+
+/** Removes an editor/viewer grant. The immutable owner row is intentionally
+ * never deleted; ownership transfer/removal requires a separate, audited
+ * lifecycle operation and is outside this endpoint. */
+export async function revokeRole(pool: Pool, pageId: string, revokerId: string, granteeUserId: string): Promise<boolean> {
+  const revokerRole = await getExistingRole(pool, pageId, revokerId);
+  if (revokerRole !== "owner") throw new NotOwnerError(pageId);
+
+  const result = await pool.query(
+    `DELETE FROM page_roles
+     WHERE page_id = $1 AND user_id = $2 AND role <> 'owner'
+     RETURNING user_id`,
+    [pageId, granteeUserId]
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 /** Who has access to a page and at what role — joined with `users` for email

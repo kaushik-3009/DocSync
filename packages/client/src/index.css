@@ -320,6 +320,186 @@ input::placeholder {
   justify-content: center;
 }
 
+/* ---------- collaborators ---------- */
+
+.share-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: min(12vh, 6rem) 1rem 1rem;
+  background: rgba(20, 20, 15, 0.24);
+}
+
+.share-panel {
+  width: min(100%, 510px);
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popover);
+}
+
+.share-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.share-panel-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.share-panel-header p {
+  margin: 0.3rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.share-panel-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.share-panel-message {
+  padding: 1.25rem 1rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.collaborator-list {
+  max-height: 235px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.collaborator-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.84rem;
+}
+
+.collaborator-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collaborator-role {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+}
+
+.collaborator-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.collaborator-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.collaborator-presence.is-active {
+  color: var(--color-accent);
+}
+
+.collaborator-presence-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.share-invite-form {
+  padding: 0.9rem 1rem 1rem;
+}
+
+.share-invite-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.45rem;
+}
+
+.share-invite-heading label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.share-forbidden {
+  color: var(--color-danger);
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.share-invite-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+}
+
+.share-invite-controls input {
+  min-width: 0;
+}
+
+.share-invite-button {
+  color: var(--color-surface);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.share-invite-button:hover {
+  color: var(--color-surface);
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.share-invite-message {
+  margin: 0.55rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.share-invite-message.is-error {
+  color: var(--color-danger);
+}
+
+@media (max-width: 560px) {
+  .share-invite-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .share-invite-controls input {
+    grid-column: 1 / -1;
+  }
+}
+
 .presence-stack {
   display: flex;
   align-items: center;

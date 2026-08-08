@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "runId": "test-persistent-redis",
+  "pageId": "chaos-test-persistent-redis",
+  "readyAt": "2026-08-05T21:15:02.777Z",
+  "clients": 4
+}
