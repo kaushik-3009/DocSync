@@ -5,7 +5,7 @@
 A shared workspace for notes, source code, and visual canvases. Multiple people can edit the same page, see live presence and cursors, discuss changes in comments, restore earlier versions, and export a page as a PDF.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js 24](https://img.shields.io/badge/node.js-24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=20232A)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -77,7 +77,7 @@ The AWS profile used two gateways, one worker, one Single-AZ database, and one R
 | Area | Technologies |
 | --- | --- |
 | Frontend | React 18, Vite, CodeMirror 6, tldraw, Yjs, y-codemirror.next |
-| Backend | Node.js 20+, TypeScript, ws, Yjs, y-protocols, lib0 |
+| Backend | Node.js 24 CI target (20+ supported), TypeScript, ws, Yjs, y-protocols, lib0 |
 | Data and jobs | PostgreSQL, Redis, ioredis, BullMQ, PDFKit |
 | Security | JWT, Node scrypt, origin allowlists, RBAC, parameterized SQL, Redis-backed rate limits |
 | Observability | Prometheus, Grafana, OpenTelemetry OTLP HTTP, Jaeger, Pino structured logging |
@@ -87,7 +87,7 @@ The AWS profile used two gateways, one worker, one Single-AZ database, and one R
 
 ## Local development
 
-**Requirements:** Node.js 20+ and pnpm.
+**Requirements:** Node.js 24 recommended (Node.js 20+ remains supported) and pnpm.
 
 For the complete local topology (Postgres, Redis, Nginx, two gateways, worker, Prometheus, Grafana, and Jaeger):
 
