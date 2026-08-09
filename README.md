@@ -30,11 +30,9 @@ A shared workspace for notes, source code, and visual canvases. Multiple people 
 - Background jobs for search indexing, link previews, and PDF export
 - Rate limiting, structured logging, metrics, and distributed tracing
 
-Yjs guarantees merge convergence for concurrent edits, but it does not enforce authentication, authorization, or application-level rules. The server handles those separately.
-
 ## Architecture
 
-The synchronization path is small on purpose: clients exchange Yjs updates through a WebSocket gateway, Postgres holds durable history, and Redis propagates updates between gateway replicas. Authorization is checked on the server before any mutation is accepted.
+The synchronization path is small: clients exchange Yjs updates through a WebSocket gateway, Postgres holds durable history, and Redis propagates updates between gateway replicas. Authorization is checked on the server before any mutation is accepted.
 
 <p align="center">
   <img src="./artifacts/screenshots/sys-arch.png" alt="System Architecture" width="800">
@@ -62,9 +60,7 @@ sequenceDiagram
 
 An accepted edit is authenticated and authorized at the WebSocket boundary, appended to Postgres, applied to the local Yjs document, and only then published through Redis to the other gateway. Durable history is always written before fanout, which keeps replay and recovery consistent.
 
-The AWS profile used two gateways, one worker, one Single-AZ database, and one Redis node in us-east-2. It was a short-lived deployment used to collect benchmark and failover evidence, and it has since been destroyed. No AWS environment is currently running for this repository.
-
-## Engineering highlights
+## Some Notes
 
 - Two gateway instances share document state without sticky sessions
 - Accepted edits are written to Postgres before being shared with other gateways; snapshots and replay support recovery
@@ -114,7 +110,7 @@ Open [http://localhost:5173](http://localhost:5173) in two tabs and use the same
 
 ### AWS staging
 
-The repository includes Terraform for a repeatable, cost-bounded AWS topology using an ALB, two ECS/Fargate gateways, RDS PostgreSQL, ElastiCache Redis, ECR, Secrets Manager, CloudWatch, and a BullMQ worker. The measured staging environment was deployed in us-east-2 for benchmark and failover evidence, then destroyed. Treat it as a disposable test environment, not an always-on production service.
+The repository includes Terraform for a repeatable, cost-bounded AWS topology using an ALB, two ECS/Fargate gateways, RDS PostgreSQL, ElastiCache Redis, ECR, Secrets Manager, CloudWatch, and a BullMQ worker. The measured staging environment was deployed in us-east-2 for benchmark and failover evidence.
 
 ## Validation
 
@@ -139,9 +135,6 @@ render.yaml          Render deployment blueprint
 docker-compose.yml   Local multi-service development topology
 ~~~
 
-## Project status
-
-DocSync is a working collaborative editing demo. The local stack and Render preview path remain available. The AWS staging environment used for the measured run has been deprovisioned. The repository does not claim production uptime, multi-AZ resilience, zero-RPO recovery, or business-level correctness from CRDT convergence alone.
 
 ## License
 
