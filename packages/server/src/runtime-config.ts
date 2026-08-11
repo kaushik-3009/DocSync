@@ -8,6 +8,11 @@ export interface RuntimeConfig {
   jwtSecret: string | undefined;
   allowedOrigins: string[];
   insecureLocalAuthBypass: boolean;
+  resendApiKey: string | undefined;
+  emailFrom: string | undefined;
+  appBaseUrl: string;
+  geminiApiKey: string | undefined;
+  geminiModel: string;
 }
 
 export class RuntimeConfigError extends Error {
@@ -109,5 +114,10 @@ export function loadRuntimeConfig(environment: RuntimeEnvironment): RuntimeConfi
     // local mode; this default does not apply to normal startup.
     allowedOrigins: allowedOrigins.length > 0 ? allowedOrigins : ["http://localhost:5173"],
     insecureLocalAuthBypass,
+    resendApiKey: optionalValue(environment, "RESEND_API_KEY"),
+    emailFrom: optionalValue(environment, "EMAIL_FROM"),
+    appBaseUrl: optionalValue(environment, "APP_BASE_URL") ?? "http://localhost:5173",
+    geminiApiKey: optionalValue(environment, "GEMINI_API_KEY"),
+    geminiModel: optionalValue(environment, "GEMINI_MODEL") ?? "gemini-3.5-flash-lite",
   };
 }

@@ -13,6 +13,19 @@ locals {
   # short-lived scaffold is being reviewed. Tasks receive public IPs, but the
   # gateway port is reachable only through the ALB security group.
   subnet_ids = slice(sort(tolist(data.aws_subnets.default.ids)), 0, 2)
+
+  gateway_secrets = concat(
+    [
+      { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:DATABASE_URL::" },
+      { name = "REDIS_URL", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:REDIS_URL::" },
+      { name = "JWT_SECRET", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:JWT_SECRET::" },
+    ],
+    var.enable_gemini ? [{ name = "GEMINI_API_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:GEMINI_API_KEY::" }] : [],
+    var.enable_resend ? [
+      { name = "RESEND_API_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:RESEND_API_KEY::" },
+      { name = "EMAIL_FROM", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:EMAIL_FROM::" },
+    ] : [],
+  )
 }
 
 data "aws_vpc" "default" {
@@ -293,15 +306,15 @@ resource "aws_ecs_task_definition" "gateway" {
       { name = "PORT", value = "1234" },
       { name = "TRUST_PROXY", value = "1" },
       { name = "LOG_LEVEL", value = "info" },
+      # Gateways accept and persist updates; the dedicated ECS worker owns
+      # BullMQ processing so a two-replica service does not run duplicate
+      # in-process consumers.
+      { name = "RUN_WORKERS", value = "false" },
       { name = "ALLOWED_ORIGINS", value = var.allowed_origin },
       { name = "WS_CONNECT_RATE_LIMIT_POINTS", value = tostring(var.ws_connect_rate_limit_points) },
     ]
 
-    secrets = [
-      { name = "DATABASE_URL", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:DATABASE_URL::" },
-      { name = "REDIS_URL", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:REDIS_URL::" },
-      { name = "JWT_SECRET", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:JWT_SECRET::" },
-    ]
+    secrets = local.gateway_secrets
 
     healthCheck = {
       command     = ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1234/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]

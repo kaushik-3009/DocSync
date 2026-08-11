@@ -25,7 +25,7 @@ import "tldraw/tldraw.css";
  * origin-tracking: `mergeRemoteChanges` marks it as source `"remote"`, so
  * the `source: "user"` listen filter never re-fires from it — no loop.
  */
-export function CanvasBlock({ doc, blockId }: { doc: Y.Doc; blockId: string }) {
+export function CanvasBlock({ doc, blockId, readOnly = false }: { doc: Y.Doc; blockId: string; readOnly?: boolean }) {
   const yCanvas = useMemo(() => doc.getMap<string>(`canvas:${blockId}`), [doc, blockId]);
   const store: TLStore = useMemo(() => createTLStore(), []);
 
@@ -89,7 +89,7 @@ export function CanvasBlock({ doc, blockId }: { doc: Y.Doc; blockId: string }) {
         <span>Canvas</span>
       </div>
       <div className="canvas-block-body">
-        <Tldraw store={store} />
+        <Tldraw store={store} onMount={(editor) => { editor.updateInstanceState({ isReadonly: readOnly }); }} />
       </div>
     </div>
   );

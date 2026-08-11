@@ -1,11 +1,8 @@
 import type { Pool } from "pg";
 import type { Role } from "@collab/shared";
 
-/** Plain lookup, no side effects. Used by HTTP read endpoints (version history,
- *  presence) so that polling a URL for a page nobody has claimed can't itself
- *  grant ownership — only the WebSocket connect path (resolveRoleForConnection)
- *  bootstraps ownership, because that's the "I'm actually opening this page to
- *  work on it" signal. */
+/** Plain lookup with no side effects. Document creation is the only operation
+ * that establishes ownership; reads and WebSocket connections never grant it. */
 export async function getExistingRole(pool: Pool, pageId: string, userId: string): Promise<Role | null> {
   const result = await pool.query<{ role: Role }>("SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2", [
     pageId,
@@ -15,64 +12,19 @@ export async function getExistingRole(pool: Pool, pageId: string, userId: string
 }
 
 /**
- * Resolves the role a connecting user has on a page. A newly opened page is
- * claimed exactly once by atomically inserting its `page_claims` row; that
- * claimant becomes its owner. Once claimed, access is invite-only: users
- * without an existing page_roles row receive null and the gateway rejects
- * their connection. The claim row, rather than a read-then-insert over
- * page_roles, closes the first-open race that could otherwise create two
- * owners under concurrent WebSocket connections.
+ * Resolves a connecting user's existing role. The document must already exist
+ * and the user must be its owner or have accepted an invitation; otherwise the
+ * gateway rejects the connection.
  */
 export async function resolveRoleForConnection(pool: Pool, pageId: string, userId: string): Promise<Role | null> {
-  const existing = await getExistingRole(pool, pageId, userId);
-  if (existing) return existing;
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    // Re-check after beginning the transaction: an owner can grant this user
-    // access after the fast-path lookup above but before this connection's
-    // claim attempt.
-    const roleResult = await client.query<{ role: Role }>(
-      "SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2",
-      [pageId, userId]
-    );
-    const grantedRole = roleResult.rows[0]?.role;
-    if (grantedRole) {
-      await client.query("COMMIT");
-      return grantedRole;
-    }
-
-    await client.query(
-      `INSERT INTO page_claims (page_id, owner_user_id)
-       VALUES ($1, $2)
-       ON CONFLICT (page_id) DO NOTHING`,
-      [pageId, userId]
-    );
-    const claim = await client.query<{ owner_user_id: string }>(
-      "SELECT owner_user_id FROM page_claims WHERE page_id = $1",
-      [pageId]
-    );
-    if (claim.rows[0]?.owner_user_id === userId) {
-      await client.query(
-        "INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT (page_id, user_id) DO NOTHING",
-        [pageId, userId]
-      );
-      await client.query("COMMIT");
-      return "owner";
-    }
-
-    // A page claim already exists and the user has no invitation. Do not
-    // create a role as a side effect of merely knowing its identifier.
-    await client.query("COMMIT");
-    return null;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+  const result = await pool.query<{ role: Role }>(
+    `SELECT pr.role
+     FROM documents d
+     JOIN page_roles pr ON pr.page_id = d.id
+     WHERE d.id = $1 AND pr.user_id = $2`,
+    [pageId, userId]
+  );
+  return result.rows[0]?.role ?? null;
 }
 
 export class NotOwnerError extends Error {
@@ -85,12 +37,12 @@ export class NotOwnerError extends Error {
 /** Raised when an owner-management call attempts to create or transfer ownership. */
 export class OwnerRoleGrantNotAllowedError extends Error {
   constructor(pageId: string) {
-    super(`ownership for page ${pageId} is established only by its initial claim`);
+    super(`ownership for page ${pageId} is established when the document is created`);
     this.name = "OwnerRoleGrantNotAllowedError";
   }
 }
 
-/** Grants (or updates) editor/viewer access for a page. Ownership is immutable after the initial claim. */
+/** Grants (or updates) editor/viewer access for a page. Ownership is immutable after document creation. */
 export async function grantRole(
   pool: Pool,
   pageId: string,

@@ -19,8 +19,6 @@ import {
   canEditContent,
 } from "@collab/shared";
 import { useYDoc } from "./useYDoc.js";
-import { generatePageId } from "./pageId.js";
-import { getRecentPages, recordPageVisit, type RecentPage } from "./recentPages.js";
 import { RichText } from "./RichText.js";
 // tldraw and CodeMirror's language packages are the two biggest contributors
 // to bundle size by far (tldraw alone is several hundred kB) — most pages
@@ -37,16 +35,32 @@ import { VersionHistoryPanel } from "./VersionHistoryPanel.js";
 import { SearchOverlay } from "./SearchOverlay.js";
 import { MentionTextInput } from "./MentionTextInput.js";
 import { formatRelativeTime } from "./relativeTime.js";
-import { fetchPageRoles, requestPdfExport, getExportStatus, fetchExportBlob, fetchHealth } from "./api.js";
+import {
+  fetchPageRoles,
+  requestPdfExport,
+  getExportStatus,
+  fetchExportBlob,
+  fetchHealth,
+  fetchDocuments,
+  createDocument,
+  fetchNotifications,
+  respondToInvitation,
+  respondToInvitationToken,
+  subscribeToNotificationChanges,
+  type WorkspaceDocument,
+  type InvitationNotification,
+} from "./api.js";
 import { SharePanel } from "./SharePanel.js";
 import { useTheme } from "./theme.js";
 import { useAuthUser, clearToken } from "./auth.js";
 import { LoginScreen } from "./LoginScreen.js";
 import type { WebsocketProvider } from "y-websocket";
+import { AssistantPanel } from "./AssistantPanel.js";
+import { InvitationToast } from "./InvitationToast.js";
 
 function getPageIdFromUrl(): string {
   const params = new URLSearchParams(window.location.search);
-  return params.get("page") ?? "demo-page";
+  return params.get("page") ?? "";
 }
 
 export function App() {
@@ -57,7 +71,6 @@ export function App() {
   // straight to `joinPage` reconnected on every character typed while
   // editing/fixing a page id, which could also trip the server's per-IP
   // connect-rate limiter under fast typing.
-  const [pageIdDraft, setPageIdDraft] = useState(pageId);
   const authUser = useAuthUser();
   // Null until the one-time /health check below resolves — the client has no
   // way to know in advance whether this server was started with JWT_SECRET
@@ -75,7 +88,7 @@ export function App() {
   // retries, and a burst of those trips the server's per-IP connect-rate
   // limiter — which then also blocks the real, authenticated attempt the
   // moment the user actually signs in. See useYDoc's `enabled` param.
-  const canConnect = authRequired !== null && (!authRequired || Boolean(authUser));
+  const canConnect = Boolean(pageId) && authRequired !== null && (!authRequired || Boolean(authUser));
   const {
     doc,
     provider,
@@ -91,12 +104,18 @@ export function App() {
     toggleCommentResolved,
     removeComment,
   } = useYDoc(pageId, authUser, canConnect);
-  const [recentPages, setRecentPages] = useState<RecentPage[]>(() => getRecentPages());
+  const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [creatingDocument, setCreatingDocument] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
+  const [notifications, setNotifications] = useState<InvitationNotification[]>([]);
+  const [respondingInvitation, setRespondingInvitation] = useState(false);
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
   const [mentionEmails, setMentionEmails] = useState<string[]>([]);
   // The gateway enforces this role on every update. Keeping the resolved role
   // here lets the client make viewer links genuinely read-only instead of
@@ -139,10 +158,10 @@ export function App() {
   // somewhere ready to type into, the way a blank Google Doc still has a
   // blinking cursor rather than an "add your first block" prompt.
   useEffect(() => {
-    if (synced && blocks.length === 0) {
+    if (synced && canEdit && blocks.length === 0) {
       createBlock(doc, crypto.randomUUID(), { type: "paragraph" });
     }
-  }, [synced, blocks.length, doc]);
+  }, [synced, canEdit, blocks.length, doc]);
 
   // Switching pages while the panel for a *different* page's history is open
   // would otherwise show stale content mid-transition.
@@ -157,12 +176,8 @@ export function App() {
   // route 503s and autocomplete quietly has no suggestions, same graceful
   // degradation as the rest of this app's optional server-side features.
   //
-  // Gated on `synced`, not just `pageId`: the roles row for a first-time
-  // visitor is created by the WS gateway's auto-enrollment (resolveRoleForConnection)
-  // *before* it starts the sync handshake, but this HTTP fetch has no such
-  // ordering guarantee on its own — firing it immediately on mount raced
-  // that WS round-trip and reliably lost, producing a 403 on every fresh
-  // page load. Waiting for `synced` guarantees the role row already exists.
+  // Wait for synchronization before loading collaborator metadata so page
+  // transitions cannot briefly display roles from the previous document.
   useEffect(() => {
     if (!synced) return;
     if (!authUser) {
@@ -206,24 +221,89 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Recorded as its own effect (not inlined into joinPage) so a page loaded
-  // directly from a URL — the common case when someone opens a link you
-  // shared — also lands in the sidebar, not just pages reached by clicking
-  // through it.
   useEffect(() => {
-    setRecentPages(recordPageVisit(pageId));
-  }, [pageId]);
+    if (!authUser || authRequired !== true) return;
+    let cancelled = false;
+    setDocumentsLoading(true);
+    fetchDocuments()
+      .then(({ documents: next }) => {
+        if (cancelled) return;
+        setDocuments(next);
+        setDocumentsLoading(false);
+        const requested = getPageIdFromUrl();
+        if (!pageId && requested && next.some((item) => item.id === requested)) joinPage(requested);
+        else if (!pageId && next[0]) joinPage(next[0].id);
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentsLoading(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser?.id, authRequired]);
+
+  useEffect(() => {
+    if (!authUser || authRequired !== true) return;
+    let cancelled = false;
+    const refresh = () => fetchNotifications().then(({ notifications: next }) => {
+      if (!cancelled) setNotifications(next.filter((item) => item.type === "document_invitation" && !item.readAt));
+    }).catch(() => undefined);
+    void refresh();
+    const unsubscribe = subscribeToNotificationChanges(refresh);
+    // Low-frequency fallback covers a temporary Redis/socket outage.
+    const interval = setInterval(refresh, 30_000);
+    return () => { cancelled = true; unsubscribe(); clearInterval(interval); };
+  }, [authUser?.id, authRequired]);
 
   function joinPage(next: string) {
     const url = new URL(window.location.href);
     url.searchParams.set("page", next);
     window.history.replaceState(null, "", url.toString());
     setPageId(next);
-    setPageIdDraft(next);
   }
 
-  function newPage() {
-    joinPage(generatePageId());
+  async function newPage() {
+    if (creatingDocument) return;
+    setCreatingDocument(true);
+    try {
+      const { document } = await createDocument();
+      setDocuments((current) => [document, ...current]);
+      joinPage(document.id);
+    } finally {
+      setCreatingDocument(false);
+    }
+  }
+
+  async function answerInvitation(notification: InvitationNotification, action: "accept" | "decline") {
+    setRespondingInvitation(true);
+    try {
+      const response = await respondToInvitation(notification.payload.invitationId, action) as { invitation: { documentId: string } };
+      setNotifications((current) => current.filter((item) => item.id !== notification.id));
+      if (action === "accept") {
+        const refreshed = await fetchDocuments();
+        setDocuments(refreshed.documents);
+        joinPage(response.invitation.documentId);
+      }
+    } finally {
+      setRespondingInvitation(false);
+    }
+  }
+
+  async function answerInviteToken(action: "accept" | "decline") {
+    if (!inviteToken) return;
+    setRespondingInvitation(true);
+    try {
+      const response = await respondToInvitationToken(inviteToken, action) as { invitation: { documentId: string } };
+      const url = new URL(window.location.href);
+      url.searchParams.delete("invite");
+      window.history.replaceState(null, "", url);
+      if (action === "accept") {
+        const refreshed = await fetchDocuments();
+        setDocuments(refreshed.documents);
+        joinPage(response.invitation.documentId);
+      }
+    } finally {
+      setRespondingInvitation(false);
+    }
   }
 
   function copyLink() {
@@ -325,7 +405,7 @@ export function App() {
 
   return (
     <div className="page-shell">
-      <PageSidebar pages={recentPages} currentPageId={pageId} onSelect={joinPage} onNewPage={newPage} />
+      <PageSidebar pages={documents} currentPageId={pageId} loading={documentsLoading} creating={creatingDocument} onSelect={joinPage} onNewPage={newPage} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div className="doc-toolbar">
@@ -346,21 +426,6 @@ export function App() {
           </span>
           <PresenceBar localUser={localUser} peers={peers} />
           <div style={{ flex: 1 }} />
-          <label style={{ fontSize: "0.78rem", color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            Page:
-            <input
-              value={pageIdDraft}
-              onChange={(e) => setPageIdDraft(e.target.value)}
-              onBlur={() => {
-                if (pageIdDraft !== pageId) joinPage(pageIdDraft);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                else if (e.key === "Escape") setPageIdDraft(pageId);
-              }}
-              style={{ fontFamily: "monospace", fontSize: "0.78rem", width: "9rem" }}
-            />
-          </label>
           <button className="toolbar-btn" onClick={() => setShowSearch(true)} title="Search pages (⌘K)">
             Search<span className="kbd">⌘K</span>
           </button>
@@ -375,6 +440,9 @@ export function App() {
           </button>
           <button className="toolbar-btn" onClick={() => setShowVersionHistory(true)}>
             History
+          </button>
+          <button className="toolbar-btn" onClick={() => setShowAssistant((visible) => !visible)} disabled={!pageId}>
+            Assistant
           </button>
           <button
             className="toolbar-btn toolbar-btn-icon"
@@ -395,6 +463,9 @@ export function App() {
         </div>
 
         <div className="doc-scroll">
+          {!pageId ? (
+            <div className="workspace-empty"><h2>Your workspace is private</h2><p>Create a document or accept an invitation to begin.</p><button onClick={newPage}>Create a document</button></div>
+          ) : (
           <div className="doc-page">
             <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
 
@@ -420,6 +491,7 @@ export function App() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -434,6 +506,13 @@ export function App() {
       )}
       {showSearch && <SearchOverlay onNavigate={joinPage} onClose={() => setShowSearch(false)} />}
       {showLoginModal && <LoginScreen mandatory={false} onClose={() => setShowLoginModal(false)} />}
+      {showAssistant && pageId && <AssistantPanel pageId={pageId} blocks={blocks} title={getTitleText(doc).toString()} onClose={() => setShowAssistant(false)} />}
+      <div className="notification-stack">
+        {inviteToken && authUser && (
+          <div className="invitation-toast" role="status"><div>You have a document invitation.</div><div className="invitation-actions"><button onClick={() => answerInviteToken("accept")} disabled={respondingInvitation}>Accept</button><button className="is-secondary" onClick={() => answerInviteToken("decline")} disabled={respondingInvitation}>Decline</button></div></div>
+        )}
+        {notifications.map((notification) => <InvitationToast key={notification.id} notification={notification} pending={respondingInvitation} onRespond={(action) => answerInvitation(notification, action)} />)}
+      </div>
     </div>
   );
 }
@@ -463,22 +542,26 @@ function TitleField({ doc, firstBlockId, readOnly }: { doc: Y.Doc; firstBlockId:
 function PageSidebar({
   pages,
   currentPageId,
+  loading,
+  creating,
   onSelect,
   onNewPage,
 }: {
-  pages: RecentPage[];
+  pages: WorkspaceDocument[];
   currentPageId: string;
+  loading: boolean;
+  creating: boolean;
   onSelect: (pageId: string) => void;
   onNewPage: () => void;
 }) {
   return (
     <div className="sidebar" style={{ display: "flex", flexDirection: "column" }}>
-      <button className="sidebar-new-page-btn" onClick={onNewPage}>
-        + New page
+      <button className="sidebar-new-page-btn" onClick={onNewPage} disabled={creating}>
+        {creating ? "Creating…" : "+ New page"}
       </button>
-      <div className="sidebar-section-label">Recent pages</div>
+      <div className="sidebar-section-label">Documents</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", overflowY: "auto" }}>
-        {pages.length === 0 && (
+        {!loading && pages.length === 0 && (
           <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", padding: "0.4rem 0.5rem" }}>
             None yet
           </span>
@@ -489,13 +572,12 @@ function PageSidebar({
             onClick={() => onSelect(page.id)}
             className={`sidebar-page-item${page.id === currentPageId ? " active" : ""}`}
             style={{
-              fontFamily: "monospace",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {page.id}
+            <span>{page.title || "Untitled"}</span><small>{page.role}</small>
           </button>
         ))}
       </div>
@@ -593,7 +675,8 @@ function BlockRow({
   const isTodo = block.type === "todo";
   const isDone = isTodo && block.checked;
 
-  const rawSlashQuery = block.type === "paragraph" && block.text.startsWith("/") ? block.text.slice(1) : null;
+  const isTextBlock = block.type !== "canvas" && block.type !== "code";
+  const rawSlashQuery = isTextBlock && block.text.startsWith("/") ? block.text.slice(1) : null;
   const slashQuery = slashDismissed ? null : rawSlashQuery;
   const slashFiltered = slashQuery !== null ? filterBlockTypeOptions(slashQuery) : [];
 
@@ -635,6 +718,16 @@ function BlockRow({
     const ytext = getBlockText(doc, block.id);
     if (!ytext) return;
     const newId = crypto.randomUUID();
+    // Specialized blocks own a Y.Text for their editor, but continuing below
+    // them must always create a normal paragraph. Splitting the source text
+    // would preserve `code`/`canvas` and duplicate the specialized block.
+    if (block.type === "code" || block.type === "canvas") {
+      if (insertBlockAfter(doc, block.id, newId, "paragraph")) {
+        const newYText = getBlockText(doc, newId);
+        if (newYText) requestFocus(newYText, 0);
+      }
+      return;
+    }
     // Splitting at the very end of this block's text is exactly "insert an
     // empty sibling right after it" — the same primitive Enter-at-end-of-
     // block uses, reused here instead of a second insertion code path.
@@ -645,6 +738,7 @@ function BlockRow({
   }
 
   const peerCursors = peers.map((p) => ({ offset: p.cursor!.offset, color: p.user.color, name: p.user.name }));
+  const blockText = getBlockText(doc, block.id);
 
   return (
     <div className="block-row" style={{ marginBottom: "0.05rem" }}>
@@ -677,10 +771,10 @@ function BlockRow({
         {block.type === "bullet" && <span aria-hidden="true">•</span>}
 
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-          {block.type === "canvas" || block.type === "code" ? null : (
+          {block.type === "canvas" || block.type === "code" || !blockText ? null : (
               <RichText
               doc={doc}
-              ytext={getBlockText(doc, block.id)!}
+              ytext={blockText}
               registryId={block.id}
                 placeholder={depth === 0 ? "Type '/' for commands" : undefined}
                 readOnly={!canEdit}
@@ -733,10 +827,15 @@ function BlockRow({
       </div>
 
       {block.type === "canvas" && (
-        <div style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}>
+        <div
+          style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}
+          tabIndex={canEdit ? 0 : undefined}
+          onKeyDown={canEdit ? (event) => { if (event.key === "Enter") { event.preventDefault(); insertBlockBelow(); } } : undefined}
+        >
           <Suspense fallback={<div className="embed-card-loading">Loading canvas…</div>}>
-            <CanvasBlock doc={doc} blockId={block.id} />
+            <CanvasBlock doc={doc} blockId={block.id} readOnly={!canEdit} />
           </Suspense>
+          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Click or press Enter to continue below</button>}
         </div>
       )}
       {block.type === "code" && (
@@ -749,8 +848,10 @@ function BlockRow({
               language={block.language}
               onLanguageChange={(lang) => setBlockLanguage(doc, block.id, lang)}
               readOnly={!canEdit}
+              onExit={insertBlockBelow}
             />
           </Suspense>
+          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Continue with text below</button>}
         </div>
       )}
       {showComments && (

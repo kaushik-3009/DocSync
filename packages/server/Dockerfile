@@ -1,4 +1,4 @@
-FROM node:20-alpine AS dependencies
+FROM node:24-alpine AS dependencies
 
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
@@ -9,7 +9,7 @@ COPY packages/server/package.json packages/server/package.json
 
 RUN pnpm install --frozen-lockfile
 
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 RUN wget -qO /app/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem

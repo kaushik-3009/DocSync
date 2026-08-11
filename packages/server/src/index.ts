@@ -10,6 +10,7 @@ import {
   dedupePresenceByUser,
   restoreBlocksFromSnapshot,
   roleAtLeast,
+  getTitleText,
 } from "@collab/shared";
 import { tracer, shutdownTracing } from "./tracing/tracer.js";
 import { RoomRegistry } from "./room-registry.js";
@@ -38,6 +39,13 @@ import {
   tryConsume,
 } from "./rate-limit/limiters.js";
 import { loadRuntimeConfig } from "./runtime-config.js";
+import { createDocument, listDocumentsForUser } from "./documents/store.js";
+import { createInvitation, listNotifications, materializePendingInvitationsForUser, respondToInvitation, respondToInvitationToken } from "./invitations/store.js";
+import { deliverInvitationEmail } from "./invitations/email.js";
+import { AiNotConfiguredError, GeminiFormatError, GeminiProviderError, chatGemini, planGemini } from "./ai/gemini.js";
+import { loadFreshAssistantState } from "./ai/context.js";
+import { applyAgentPlan, parseAgentPlan, type AgentPlan } from "./ai/agent.js";
+import { NotificationGateway } from "./notifications/gateway.js";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
 const PORT = runtimeConfig.port;
@@ -84,6 +92,8 @@ let fanoutOutbox: FanoutOutbox | null = null;
 // can quit them on SIGTERM/SIGINT — see shutdown() further down.
 let broadcasterPub: Redis | null = null;
 let broadcasterSub: Redis | null = null;
+let notificationSub: Redis | null = null;
+let notificationGateway: NotificationGateway | null = null;
 if (REDIS_URL) {
   // Separate connections for publishing and subscribing: once an ioredis
   // connection issues SUBSCRIBE it can only issue further (un)subscribe
@@ -195,6 +205,11 @@ const PREVIEW_HTTP_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/preview$/;
 const EXPORT_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/export$/;
 const EXPORT_STATUS_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/export\/([A-Za-z0-9_-]+)$/;
 const EXPORT_DOWNLOAD_PATH = /^\/exports\/([A-Za-z0-9_-]+)$/;
+const INVITATION_RESPONSE_PATH = /^\/invitations\/([A-Za-z0-9_-]+)\/(accept|decline)$/;
+const AI_ASSISTANT_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/assistant$/;
+const AI_AGENT_PLAN_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/assistant\/plan$/;
+const AI_AGENT_APPLY_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/assistant\/apply$/;
+
 
 function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -237,14 +252,14 @@ function handleRouteError(res: ServerResponse, event: string, err: unknown): voi
 /** Requires a valid bearer token; returns the userId or null (and writes a 401) if auth is
  *  enabled and the request has none. When auth is disabled, always returns null without
  *  writing a response — callers proceed exactly as before. */
-function requireAuthIfEnabled(req: IncomingMessage, res: ServerResponse): { userId: string } | null | "unauthenticated" {
+function requireAuthIfEnabled(req: IncomingMessage, res: ServerResponse): { userId: string; email: string } | null | "unauthenticated" {
   if (!auth) return null;
   const payload = authenticateRequest(req, auth.jwtSecret);
   if (!payload) {
     sendJson(res, 401, { error: "missing or invalid bearer token" });
     return "unauthenticated";
   }
-  return { userId: payload.sub };
+  return { userId: payload.sub, email: payload.email };
 }
 
 /** Collapses a raw path into a low-cardinality label for the duration histogram —
@@ -407,6 +422,7 @@ const httpServer = createServer((req, res) => {
 
           try {
             const user = await createUser(pool!, email, password);
+            await materializePendingInvitationsForUser(pool!, user);
             recordAudit(pool!, { userId: user.id, pageId: null, event: "user_registered" });
             if (!JWT_SECRET) return sendJson(res, 503, { error: "JWT_SECRET not configured" });
             sendJson(res, 201, { token: signToken({ sub: user.id, email: user.email }, JWT_SECRET) });
@@ -472,6 +488,180 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  if (pathname === "/documents" && req.method === "GET") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !authResult) return sendJson(res, 503, { error: "documents require authenticated persistence" });
+    listDocumentsForUser(pool, authResult.userId)
+      .then((documents) => sendJson(res, 200, { documents }))
+      .catch((err) => handleRouteError(res, "list_documents_failed", err));
+    return;
+  }
+
+  if (pathname === "/documents" && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !authResult) return sendJson(res, 503, { error: "documents require authenticated persistence" });
+    readJsonBody<{ title?: string }>(req)
+      .then(({ title }) => createDocument(pool!, authResult.userId, title))
+      .then((document) => {
+        recordAudit(pool!, { userId: authResult.userId, pageId: document.id, event: "document_created" });
+        sendJson(res, 201, { document });
+      })
+      .catch((err) => handleRouteError(res, "create_document_failed", err));
+    return;
+  }
+
+  if (pathname === "/notifications" && req.method === "GET") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !authResult) return sendJson(res, 503, { error: "notifications require authenticated persistence" });
+    listNotifications(pool, authResult.userId)
+      .then((notifications) => sendJson(res, 200, { notifications }))
+      .catch((err) => handleRouteError(res, "list_notifications_failed", err));
+    return;
+  }
+
+  const invitationResponseMatch = pathname.match(INVITATION_RESPONSE_PATH);
+  if (invitationResponseMatch && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !authResult) return sendJson(res, 503, { error: "invitations require authenticated persistence" });
+    const [, invitationId, action] = invitationResponseMatch;
+    respondToInvitation(pool, invitationId, { id: authResult.userId, email: authResult.email }, action === "accept" ? "accepted" : "declined")
+      .then((invitation) => {
+        recordAudit(pool!, { userId: authResult.userId, pageId: invitation.documentId, event: `invitation_${invitation.status}` });
+        sendJson(res, 200, { invitation });
+      })
+      .catch((err) => sendJson(res, 409, { error: err instanceof Error ? err.message : "unable to answer invitation" }));
+    return;
+  }
+
+  if (pathname === "/invitations/respond" && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !authResult) return sendJson(res, 503, { error: "invitations require authenticated persistence" });
+    readJsonBody<{ token?: string; action?: "accept" | "decline" }>(req)
+      .then(({ token, action }) => {
+        if (!token || (action !== "accept" && action !== "decline")) throw new Error("token and action are required");
+        return respondToInvitationToken(pool!, token, { id: authResult.userId, email: authResult.email }, action === "accept" ? "accepted" : "declined");
+      })
+      .then((invitation) => sendJson(res, 200, { invitation }))
+      .catch((err) => sendJson(res, 409, { error: err instanceof Error ? err.message : "unable to answer invitation" }));
+    return;
+  }
+
+  const aiAssistantMatch = pathname.match(AI_ASSISTANT_PATH);
+  if (aiAssistantMatch && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !pageStore || !authResult) return sendJson(res, 503, { error: "assistant requires authenticated persistence" });
+    const pageId = aiAssistantMatch[1];
+    readJsonBody<{ prompt?: string }>(req)
+      .then(async ({ prompt }) => {
+        const normalizedPrompt = prompt?.trim();
+        if (!normalizedPrompt || normalizedPrompt.length > 4_000) return sendJson(res, 400, { error: "prompt must be between 1 and 4000 characters" });
+        const role = await getExistingRole(pool!, pageId, authResult.userId);
+        if (!role) return sendJson(res, 403, { error: "no access to this page" });
+        const documentResult = await pool!.query<{ title: string }>("SELECT title FROM documents WHERE id = $1", [pageId]);
+        if (!documentResult.rows[0]) return sendJson(res, 404, { error: "document not found" });
+        const assistantState = await loadFreshAssistantState(pageId, pageStore!, registry);
+        const response = await chatGemini(
+          { apiKey: runtimeConfig.geminiApiKey, model: runtimeConfig.geminiModel },
+          { prompt: normalizedPrompt, title: assistantState.title || documentResult.rows[0].title, blocks: assistantState.blocks, role }
+        );
+        recordAudit(pool!, { userId: authResult.userId, pageId, event: response.kind === "edit_plan" ? "assistant_edit_planned" : "assistant_prompted", metadata: { role, kind: response.kind } });
+        sendJson(res, 200, response.kind === "edit_plan" ? { ...response, baseSeq: assistantState.baseSeq, model: runtimeConfig.geminiModel } : { ...response, model: runtimeConfig.geminiModel });
+      })
+      .catch((err) => {
+        if (err instanceof AiNotConfiguredError) return sendJson(res, 503, { error: err.message });
+        const providerError = err instanceof GeminiProviderError ? err : undefined;
+        const formatError = err instanceof GeminiFormatError ? err : undefined;
+        logger.warn({ event: "assistant_request_failed", pageId, phase: providerError?.phase, providerStatus: providerError?.status, err }, "assistant request failed");
+        if (!res.headersSent) {
+          const status = providerError?.status === 429 ? 429 : providerError || formatError ? 502 : 503;
+          const error = providerError
+            ? `Gemini provider error${providerError.status ? ` (HTTP ${providerError.status})` : ""}: ${providerError.message}`
+            : formatError
+              ? `Gemini returned an unusable response: ${formatError.message}`
+              : err instanceof Error
+                ? err.message
+                : "The assistant could not prepare a response";
+          sendJson(res, status, { error, code: "assistant_request_failed" });
+        }
+      });
+    return;
+  }
+
+  const aiAgentPlanMatch = pathname.match(AI_AGENT_PLAN_PATH);
+  if (aiAgentPlanMatch && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !pageStore || !authResult) return sendJson(res, 503, { error: "assistant requires authenticated persistence" });
+    const pageId = aiAgentPlanMatch[1];
+    readJsonBody<{ prompt?: string }>(req)
+      .then(async ({ prompt }) => {
+        const normalizedPrompt = prompt?.trim();
+        if (!normalizedPrompt || normalizedPrompt.length > 4_000) return sendJson(res, 400, { error: "prompt must be between 1 and 4000 characters" });
+        const role = await getExistingRole(pool!, pageId, authResult.userId);
+        if (!role || !roleAtLeast(role, "editor")) return sendJson(res, 403, { error: "editor or owner access required for AI edits" });
+        const documentResult = await pool!.query<{ title: string }>("SELECT title FROM documents WHERE id = $1", [pageId]);
+        if (!documentResult.rows[0]) return sendJson(res, 404, { error: "document not found" });
+        const assistantState = await loadFreshAssistantState(pageId, pageStore!, registry);
+        const baseSeq = assistantState.baseSeq;
+        const plan = await planGemini(
+          { apiKey: runtimeConfig.geminiApiKey, model: runtimeConfig.geminiModel },
+          { prompt: normalizedPrompt, title: assistantState.title || documentResult.rows[0].title, blocks: assistantState.blocks, role }
+        );
+        recordAudit(pool!, { userId: authResult.userId, pageId, event: "assistant_edit_planned", metadata: { role, operationCount: plan.operations.length, baseSeq } });
+        sendJson(res, 200, { plan, baseSeq, model: runtimeConfig.geminiModel });
+      })
+      .catch((err) => {
+        if (err instanceof AiNotConfiguredError) return sendJson(res, 503, { error: err.message });
+        handleRouteError(res, "assistant_edit_plan_failed", err);
+      });
+    return;
+  }
+
+  const aiAgentApplyMatch = pathname.match(AI_AGENT_APPLY_PATH);
+  if (aiAgentApplyMatch && req.method === "POST") {
+    const authResult = requireAuthIfEnabled(req, res);
+    if (authResult === "unauthenticated") return;
+    if (!pool || !pageStore || !authResult) return sendJson(res, 503, { error: "assistant requires authenticated persistence" });
+    const pageId = aiAgentApplyMatch[1];
+    readJsonBody<{ baseSeq?: number; plan?: AgentPlan }>(req)
+      .then(async ({ baseSeq, plan }) => {
+        const role = await getExistingRole(pool!, pageId, authResult.userId);
+        if (!roleAtLeast(role ?? "viewer", "editor")) return sendJson(res, 403, { error: "editor or owner access required for AI edits" });
+        if (!Number.isInteger(baseSeq) || !plan || typeof plan.summary !== "string" || !Array.isArray(plan.operations)) return sendJson(res, 400, { error: "a valid plan and baseSeq are required" });
+        const validatedPlan = parseAgentPlan(JSON.stringify(plan));
+        const currentSeq = await pageStore!.currentSeq(pageId);
+        if (currentSeq !== baseSeq) return sendJson(res, 409, { error: "document changed while Gemini was preparing this edit; generate a new plan", currentSeq });
+        const room = await registry.getOrCreateRoom(pageId);
+        if (room.persistedSeq !== baseSeq) return sendJson(res, 409, { error: "gateway is catching up; generate a new plan", currentSeq: room.persistedSeq });
+        const detached = new Y.Doc();
+        let update: Uint8Array | null = null;
+        try {
+          Y.applyUpdate(detached, Y.encodeStateAsUpdate(room.doc));
+          detached.on("update", (next: Uint8Array) => { update = next; });
+          applyAgentPlan(detached, validatedPlan);
+          if (update) await room.applyServerUpdate(update);
+        } finally {
+          detached.destroy();
+          registry.releaseRoom(pageId);
+        }
+        recordAudit(pool!, { userId: authResult.userId, pageId, event: "assistant_edit_applied", metadata: { role, operationCount: validatedPlan.operations.length, baseSeq } });
+        sendJson(res, 200, { pageId, applied: validatedPlan.operations.length, summary: validatedPlan.summary });
+      })
+      .catch((err) => {
+        if (err instanceof Error && /block .* does not exist/.test(err.message)) {
+          return sendJson(res, 409, { error: "The proposed edit targeted an outdated block. Ask Gemini again to refresh the document." });
+        }
+        handleRouteError(res, "assistant_edit_apply_failed", err);
+      });
+    return;
+  }
+
   const presenceMatch = url.match(PRESENCE_PATH);
   if (presenceMatch) {
     const authResult = requireAuthIfEnabled(req, res);
@@ -518,32 +708,29 @@ const httpServer = createServer((req, res) => {
           return sendJson(res, 400, { error: "email and a valid role (editor|viewer) are required" });
         }
 
-        // Ownership is checked before the grantee lookup, and a nonexistent
-        // grantee gets the exact same response as a real one — previously the
-        // grantee lookup ran first and returned a distinct 404, which let any
-        // authenticated caller (not just this page's owner — grantRole's own
-        // ownership check never even ran) use this endpoint to test arbitrary
-        // emails for registration.
         const requesterRole = await getExistingRole(auth!.pool, pageId, authResult.userId);
         if (requesterRole !== "owner") {
           return sendJson(res, 403, { error: "only an owner can grant roles" });
         }
-
-        const grantee = await findUserByEmail(auth!.pool, email);
-        if (!grantee) return sendJson(res, 200, { pageId, granteeEmail: email, role });
-
-        await grantRole(auth!.pool, pageId, authResult.userId, grantee.id, role);
-        registry.disconnectUser(pageId, grantee.id);
+        const invitation = await createInvitation(auth!.pool, pageId, authResult.userId, email, role);
+        const emailStatus = await deliverInvitationEmail(
+          auth!.pool,
+          { apiKey: runtimeConfig.resendApiKey, from: runtimeConfig.emailFrom, appBaseUrl: runtimeConfig.appBaseUrl },
+          invitation
+        );
+        if (invitation.notifyUserId) await notificationGateway?.publish(invitation.notifyUserId);
         recordAudit(auth!.pool, {
           userId: authResult.userId,
           pageId,
-          event: "role_granted",
-          metadata: { granteeEmail: email, role },
+          event: "invitation_created",
+          metadata: { granteeEmail: email.trim().toLowerCase(), role, emailStatus },
         });
-        sendJson(res, 200, { pageId, granteeEmail: email, role });
+        sendJson(res, 202, { pageId, granteeEmail: email.trim().toLowerCase(), role, invitationId: invitation.invitationId, emailStatus });
       })
       .catch((err) => {
-        if (err instanceof NotOwnerError) return sendJson(res, 403, { error: err.message });
+        if (err instanceof NotOwnerError || (err instanceof Error && err.message.startsWith("only the document owner"))) {
+          return sendJson(res, 403, { error: err.message });
+        }
         handleRouteError(res, "grant_role_failed", err);
       });
     return;
@@ -802,7 +989,7 @@ const httpServer = createServer((req, res) => {
       (authResult ? getExistingRole(auth!.pool, pageId, authResult.userId) : Promise.resolve<null>(null))
         .then((role) => {
           if (authResult && !role) return sendJson(res, 403, { error: "no access to this page" });
-          return pageStore!.listVersionDetails(pageId).then((versions) => sendJson(res, 200, { pageId, versions }));
+          return pageStore!.listLogicalVersionDetails(pageId).then((versions) => sendJson(res, 200, { pageId, versions }));
         })
         .catch((err) => handleRouteError(res, "versions_failed", err));
       return;
@@ -829,6 +1016,12 @@ const httpServer = createServer((req, res) => {
   res.end();
   }
 });
+
+if (auth && broadcasterPub && REDIS_URL) {
+  notificationSub = new Redis(REDIS_URL);
+  notificationGateway = new NotificationGateway(broadcasterPub, notificationSub, auth.jwtSecret, ALLOWED_ORIGINS);
+  await notificationGateway.attach(httpServer);
+}
 
 attachWsGateway(httpServer, registry, auth ?? undefined, wsRateLimit, TRUST_PROXY, {
   allowedOrigins: ALLOWED_ORIGINS,
@@ -878,9 +1071,10 @@ async function shutdown(): Promise<void> {
   registry.destroyAll();
   await stopWorkers?.();
   await jobQueues?.close();
+  await notificationGateway?.close();
   await shutdownTracing();
   await Promise.all(
-    [pool?.end(), broadcasterPub?.quit(), broadcasterSub?.quit(), jobsConnection?.quit(), rateLimitRedis?.quit()].map((p) =>
+    [pool?.end(), broadcasterPub?.quit(), broadcasterSub?.quit(), notificationSub?.quit(), jobsConnection?.quit(), rateLimitRedis?.quit()].map((p) =>
       p?.catch((err) => logger.error({ event: "shutdown_resource_close_failed", err }, "failed to close a resource during shutdown"))
     )
   );

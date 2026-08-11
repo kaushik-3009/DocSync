@@ -21,6 +21,7 @@ import { recordAudit, listAuditLog } from "../src/auth/audit.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway, type WsAuthConfig } from "../src/ws-gateway.js";
 import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
+import { createDocument } from "../src/documents/store.js";
 
 const JWT_SECRET = "test-secret";
 
@@ -56,20 +57,20 @@ describe("jwt", () => {
 });
 
 describe("RBAC", () => {
-  it("atomically bootstraps the first connector as owner and keeps an uninvited user out", async () => {
+  it("rejects unknown page ids and keeps an uninvited user out of an explicitly created document", async () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
 
-    const aliceRole = await resolveRoleForConnection(pool, "new-page", alice.id);
-    expect(aliceRole).toBe("owner");
+    expect(await resolveRoleForConnection(pool, "guessed-page", alice.id)).toBeNull();
+    const document = await createDocument(pool, alice.id);
+    expect(await resolveRoleForConnection(pool, document.id, alice.id)).toBe("owner");
 
-    // Knowing a claimed page ID must not create an implicit editor grant.
-    const bobRole = await resolveRoleForConnection(pool, "new-page", bob.id);
+    const bobRole = await resolveRoleForConnection(pool, document.id, bob.id);
     expect(bobRole).toBeNull();
-    expect(await getExistingRole(pool, "new-page", bob.id)).toBeNull();
+    expect(await getExistingRole(pool, document.id, bob.id)).toBeNull();
   });
 
-  it("permits exactly one owner when first connections race", async () => {
+  it("does not let concurrent first connections claim an unknown page id", async () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
 
@@ -78,16 +79,15 @@ describe("RBAC", () => {
       resolveRoleForConnection(pool, "racing-page", bob.id),
     ]);
 
-    expect(roles.filter((role) => role === "owner")).toHaveLength(1);
-    expect(roles.filter((role) => role === null)).toHaveLength(1);
+    expect(roles).toEqual([null, null]);
     const owners = await pool.query("SELECT user_id FROM page_roles WHERE page_id = $1 AND role = 'owner'", ["racing-page"]);
-    expect(owners.rowCount).toBe(1);
+    expect(owners.rowCount).toBe(0);
   });
 
   it("lets an owner grant a role, which resolveRoleForConnection then honors", async () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-x", alice.id); // alice becomes owner
+    await createTestDocument("page-x", alice.id);
 
     await grantRole(pool, "page-x", alice.id, bob.id, "editor");
     expect(await getExistingRole(pool, "page-x", bob.id)).toBe("editor");
@@ -98,7 +98,7 @@ describe("RBAC", () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
     const carol = await createUser(pool, "carol@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-x", alice.id);
+    await createTestDocument("page-x", alice.id);
     await grantRole(pool, "page-x", alice.id, bob.id, "viewer");
 
     await expect(grantRole(pool, "page-x", bob.id, carol.id, "editor")).rejects.toThrow(NotOwnerError);
@@ -107,7 +107,7 @@ describe("RBAC", () => {
   it("does not allow an owner grant to create or transfer ownership", async () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-x", alice.id);
+    await createTestDocument("page-x", alice.id);
 
     await expect(grantRole(pool, "page-x", alice.id, bob.id, "owner")).rejects.toThrow(OwnerRoleGrantNotAllowedError);
     expect(await getExistingRole(pool, "page-x", bob.id)).toBeNull();
@@ -116,7 +116,7 @@ describe("RBAC", () => {
   it("lets an owner revoke an editor/viewer grant but never removes the owner row", async () => {
     const alice = await createUser(pool, "alice-revoke@example.com", "pw");
     const bob = await createUser(pool, "bob-revoke@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-revoke", alice.id);
+    await createTestDocument("page-revoke", alice.id);
     await grantRole(pool, "page-revoke", alice.id, bob.id, "editor");
 
     await expect(revokeRole(pool, "page-revoke", bob.id, alice.id)).rejects.toThrow(NotOwnerError);
@@ -129,7 +129,7 @@ describe("RBAC", () => {
   it("lists everyone with access to a page, with email — for @mention autocomplete", async () => {
     const alice = await createUser(pool, "alice@example.com", "pw");
     const bob = await createUser(pool, "bob@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-x", alice.id); // alice becomes owner
+    await createTestDocument("page-x", alice.id);
     await grantRole(pool, "page-x", alice.id, bob.id, "viewer");
 
     const roles = await listRoles(pool, "page-x");
@@ -215,10 +215,10 @@ describe("ws-gateway with auth enabled", () => {
     provider.destroy();
   });
 
-  it("first connection to a page becomes owner and can edit; a viewer connection cannot mutate the doc", async () => {
+  it("lets the document owner edit while a viewer connection cannot mutate the document", async () => {
     const owner = await createUser(pool, "owner@example.com", "pw");
     const viewerUser = await createUser(pool, "viewer@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-a", owner.id); // bootstrap owner ahead of connecting
+    await createTestDocument("page-a", owner.id);
     await grantRole(pool, "page-a", owner.id, viewerUser.id, "viewer");
 
     const ownerToken = signToken({ sub: owner.id, email: owner.email }, JWT_SECRET);
@@ -252,7 +252,7 @@ describe("ws-gateway with auth enabled", () => {
   it("rejects a signed-in user with no role on an already-claimed page", async () => {
     const owner = await createUser(pool, "owner2@example.com", "pw");
     const newcomer = await createUser(pool, "newcomer@example.com", "pw");
-    await resolveRoleForConnection(pool, "page-b", owner.id);
+    await createTestDocument("page-b", owner.id);
 
     const newcomerToken = signToken({ sub: newcomer.id, email: newcomer.email }, JWT_SECRET);
     const socket = new ws(`ws://localhost:${port}/ws/page-b?token=${encodeURIComponent(newcomerToken)}`);
@@ -263,6 +263,12 @@ describe("ws-gateway with auth enabled", () => {
     expect(await getExistingRole(pool, "page-b", newcomer.id)).toBeNull();
   });
 });
+
+async function createTestDocument(pageId: string, ownerUserId: string): Promise<void> {
+  await pool.query("INSERT INTO documents (id, owner_user_id, title) VALUES ($1, $2, 'Untitled')", [pageId, ownerUserId]);
+  await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", [pageId, ownerUserId]);
+  await pool.query("INSERT INTO page_claims (page_id, owner_user_id) VALUES ($1, $2)", [pageId, ownerUserId]);
+}
 
 function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
   return new Promise((resolve, reject) => {

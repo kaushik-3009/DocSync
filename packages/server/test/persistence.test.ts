@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { createTestPool } from "./helpers/test-db.js";
-import { appendOp, getOpsInRange, getCurrentSeq, updateFingerprint } from "../src/persistence/ops-log.js";
+import { appendOp, getOpsInRange, getCurrentSeq, groupOpSummaries, updateFingerprint } from "../src/persistence/ops-log.js";
 import { saveSnapshot, getLatestSnapshot, listSnapshotSeqs, listSnapshots } from "../src/persistence/snapshots.js";
 import { replayDocument } from "../src/persistence/replay.js";
 import { PageStore } from "../src/persistence/page-store.js";
@@ -15,6 +15,43 @@ beforeEach(async () => {
 });
 
 describe("ops-log", () => {
+  it("groups rapid operations into 30-second logical versions while retaining the end sequence", () => {
+    const versions = groupOpSummaries([
+      { seq: 1, createdAt: "2026-08-10T12:00:00.000Z" },
+      { seq: 2, createdAt: "2026-08-10T12:00:08.000Z" },
+      { seq: 3, createdAt: "2026-08-10T12:00:29.999Z" },
+      { seq: 4, createdAt: "2026-08-10T12:00:30.000Z" },
+      { seq: 5, createdAt: "2026-08-10T12:01:10.000Z" },
+    ]);
+
+    expect(versions).toEqual([
+      {
+        seq: 5,
+        startSeq: 5,
+        endSeq: 5,
+        editCount: 1,
+        createdAt: "2026-08-10T12:01:10.000Z",
+        updatedAt: "2026-08-10T12:01:10.000Z",
+      },
+      {
+        seq: 4,
+        startSeq: 4,
+        endSeq: 4,
+        editCount: 1,
+        createdAt: "2026-08-10T12:00:30.000Z",
+        updatedAt: "2026-08-10T12:00:30.000Z",
+      },
+      {
+        seq: 3,
+        startSeq: 1,
+        endSeq: 3,
+        editCount: 3,
+        createdAt: "2026-08-10T12:00:00.000Z",
+        updatedAt: "2026-08-10T12:00:29.999Z",
+      },
+    ]);
+  });
+
   it("allocates gap-free, per-page monotonic sequence numbers", async () => {
     const seq1 = await appendOp(pool, "page-a", new Uint8Array([1]));
     const seq2 = await appendOp(pool, "page-a", new Uint8Array([2]));
@@ -147,6 +184,9 @@ describe("PageStore", () => {
 
     expect(await store.listVersions("page-history")).toEqual([2, 1]);
     expect((await store.listVersionDetails("page-history")).map((version) => version.seq)).toEqual([2, 1]);
+    const logical = await store.listLogicalVersionDetails("page-history");
+    expect(logical).toHaveLength(1);
+    expect(logical[0]).toMatchObject({ startSeq: 1, endSeq: 2, seq: 2, editCount: 2 });
   });
 
   it("takes a snapshot every SNAPSHOT_INTERVAL ops", async () => {

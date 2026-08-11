@@ -71,6 +71,9 @@ export function attachWsGateway(
   httpServer.on("upgrade", (request, socket, head) => {
     const rawUrl = request.url ?? "";
     const { pathname, searchParams } = new URL(rawUrl, "http://internal");
+    // A separate authenticated WebSocket gateway owns this path. Ignore it
+    // here so two upgrade listeners can safely share the HTTP server.
+    if (pathname === "/notifications") return;
     const pageId = pageIdFromPath(pathname);
 
     const origin = request.headers.origin;

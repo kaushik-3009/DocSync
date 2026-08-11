@@ -76,6 +76,16 @@ export interface OpSummary {
   createdAt: string;
 }
 
+export interface LogicalVersionSummary {
+  /** End sequence is retained as `seq` for the existing version/restore API. */
+  seq: number;
+  startSeq: number;
+  endSeq: number;
+  editCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export async function getOpsInRange(pool: Pool, pageId: string, afterSeq: number, uptoSeq?: number): Promise<OpRow[]> {
   const { rows } = await pool.query<{ seq: string; update: string }>(
     uptoSeq === undefined
@@ -99,4 +109,39 @@ export async function listOpSummaries(pool: Pool, pageId: string): Promise<OpSum
     [pageId]
   );
   return rows.map((row) => ({ seq: Number(row.seq), createdAt: new Date(row.created_at).toISOString() }));
+}
+
+/** Groups the immutable operation history into user-facing versions. The raw
+ * log remains one row per accepted Yjs update; this derived view rolls edits
+ * into 30-second windows starting at the first edit in each window. Concurrent
+ * collaborators therefore share one logical version while replay and restore
+ * still address the exact end sequence of that version. */
+export function groupOpSummaries(rows: OpSummary[], windowMs = 30_000): LogicalVersionSummary[] {
+  const ascending = [...rows].sort((a, b) => a.seq - b.seq);
+  const groups: LogicalVersionSummary[] = [];
+  for (const row of ascending) {
+    const timestamp = Date.parse(row.createdAt);
+    const current = groups[groups.length - 1];
+    const currentStart = current ? Date.parse(current.createdAt) : Number.NaN;
+    if (!current || timestamp - currentStart >= windowMs) {
+      groups.push({
+        seq: row.seq,
+        startSeq: row.seq,
+        endSeq: row.seq,
+        editCount: 1,
+        createdAt: row.createdAt,
+        updatedAt: row.createdAt,
+      });
+      continue;
+    }
+    current.endSeq = row.seq;
+    current.seq = row.seq;
+    current.editCount += 1;
+    current.updatedAt = row.createdAt;
+  }
+  return groups.reverse();
+}
+
+export async function listLogicalVersionSummaries(pool: Pool, pageId: string): Promise<LogicalVersionSummary[]> {
+  return groupOpSummaries(await listOpSummaries(pool, pageId));
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import * as Y from "yjs";
 import type { WebsocketProvider } from "y-websocket";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { EditorState, type Extension } from "@codemirror/state";
+import { EditorState, Prec, type Extension } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
@@ -27,6 +27,9 @@ function codeMirrorChrome(dark: boolean): Extension {
         color: dark ? "#ececE7" : "#23231f",
       },
       ".cm-content": { caretColor: dark ? "#ececE7" : "#23231f" },
+      ".cm-line": { color: dark ? "#e5eeee" : "#23231f" },
+      ".cm-line span": { color: `${dark ? "#e5eeee" : "#23231f"} !important` },
+      ".cm-scroller": { backgroundColor: dark ? "#17191b" : "#f0f0ec" },
       ".cm-gutters": {
         backgroundColor: dark ? "#17191b" : "#f0f0ec",
         color: dark ? "#6c6c64" : "#a3a39a",
@@ -70,6 +73,7 @@ export function CodeBlock({
   language,
   onLanguageChange,
   readOnly = false,
+  onExit,
 }: {
   doc: Y.Doc;
   blockId: string;
@@ -77,9 +81,12 @@ export function CodeBlock({
   language: CodeLanguage;
   onLanguageChange: (language: CodeLanguage) => void;
   readOnly?: boolean;
+  onExit?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const theme = useThemeValue();
 
   useEffect(() => {
@@ -94,6 +101,17 @@ export function CodeBlock({
         lineNumbers(),
         history(),
         EditorState.readOnly.of(readOnly),
+        Prec.high(keymap.of([{
+          key: "Enter",
+          run: (view) => {
+            const atEnd = view.state.selection.main.empty && view.state.selection.main.head === view.state.doc.length;
+            if (!readOnly && atEnd && view.state.doc.toString().endsWith("\n")) {
+              onExitRef.current?.();
+              return true;
+            }
+            return false;
+          },
+        }])),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         LANGUAGE_EXTENSIONS[language],

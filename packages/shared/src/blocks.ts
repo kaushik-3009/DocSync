@@ -232,11 +232,11 @@ export function splitBlock(doc: Y.Doc, blockId: string, offset: number, newBlock
  *  type (code/canvas) and the caller wants a normal empty paragraph right
  *  after it to keep typing into, not another code/canvas block. Returns
  *  false if `afterBlockId` doesn't exist. */
-export function insertBlockAfter(doc: Y.Doc, afterBlockId: string, newBlockId: string, type: BlockType): boolean {
+export function insertBlockAfter(doc: Y.Doc, afterBlockId: string, newBlockId: string, type: BlockType, text?: string): boolean {
   const loc = findLocation(doc, afterBlockId);
   if (!loc) return false;
   doc.transact(() => {
-    getBlocksMap(doc).set(newBlockId, createBlockMap({ type }));
+    getBlocksMap(doc).set(newBlockId, createBlockMap({ type, text }));
     loc.array.insert(loc.index + 1, [newBlockId]);
   });
   return true;

@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { Pool } from "pg";
-import { appendOp, getCurrentSeq, getOpsInRange, listOpSummaries, type OpRow, type OpSummary } from "./ops-log.js";
+import { appendOp, getCurrentSeq, getOpsInRange, listLogicalVersionSummaries, listOpSummaries, type LogicalVersionSummary, type OpRow, type OpSummary } from "./ops-log.js";
 import { saveSnapshot } from "./snapshots.js";
 import { replayDocument } from "./replay.js";
 import { childLogger } from "../logger.js";
@@ -84,6 +84,11 @@ export class PageStore {
   /** Same versions as `listVersions`, plus creation time for the UI. */
   async listVersionDetails(pageId: string): Promise<OpSummary[]> {
     return listOpSummaries(this.pool, pageId);
+  }
+
+  /** User-facing history groups rapid durable operations into logical edits. */
+  async listLogicalVersionDetails(pageId: string): Promise<LogicalVersionSummary[]> {
+    return listLogicalVersionSummaries(this.pool, pageId);
   }
 
   /** Reconstructs document state as of a specific seq — the "time travel" read path. */

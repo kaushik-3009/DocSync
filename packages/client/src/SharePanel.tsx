@@ -75,7 +75,7 @@ export function SharePanel({
       setInviteState("success");
       // The API intentionally does not disclose whether an email has an
       // account. Preserve that privacy guarantee in the message shown here.
-      setInviteMessage("Access was submitted. It applies when this email belongs to a registered account.");
+      setInviteMessage("Invitation sent. Access begins only after the recipient accepts it.");
       setEmail("");
       await loadRoles();
     } catch (error) {
@@ -96,7 +96,7 @@ export function SharePanel({
         <header className="share-panel-header">
           <div>
             <h3 id="share-panel-title">Collaborators</h3>
-            <p>Only invited, registered users can open this page.</p>
+            <p>Documents stay private until a recipient accepts an invitation.</p>
           </div>
           <button type="button" aria-label="Close collaborators" className="share-panel-close" onClick={onClose}>×</button>
         </header>

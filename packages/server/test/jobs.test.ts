@@ -6,7 +6,7 @@ import { PageStore } from "../src/persistence/page-store.js";
 import { processSearchIndexJob, processPreviewJob, processPdfExportJob } from "../src/jobs/processors.js";
 import { searchPages } from "../src/jobs/search.js";
 import { createUser } from "../src/auth/users.js";
-import { grantRole, resolveRoleForConnection } from "../src/auth/rbac.js";
+import { grantRole } from "../src/auth/rbac.js";
 import { createBlock } from "@collab/shared";
 
 let pool: Pool;
@@ -58,11 +58,11 @@ describe("searchPages RBAC scoping", () => {
 
     await seedPage("alice-page", "shared search term");
     await processSearchIndexJob(pool, pageStore, "alice-page");
-    await resolveRoleForConnection(pool, "alice-page", alice.id); // alice owns it
+    await createOwnedDocument("alice-page", alice.id);
 
     await seedPage("bob-page", "shared search term");
     await processSearchIndexJob(pool, pageStore, "bob-page");
-    await resolveRoleForConnection(pool, "bob-page", bob.id); // bob owns it
+    await createOwnedDocument("bob-page", bob.id);
 
     const aliceResults = await searchPages(pool, "shared search", alice.id);
     expect(aliceResults.map((h) => h.pageId)).toEqual(["alice-page"]);
@@ -76,6 +76,12 @@ describe("searchPages RBAC scoping", () => {
     expect(aliceResultsAfterGrant.map((h) => h.pageId).sort()).toEqual(["alice-page", "bob-page"]);
   });
 });
+
+async function createOwnedDocument(pageId: string, ownerUserId: string): Promise<void> {
+  await pool.query("INSERT INTO documents (id, owner_user_id, title) VALUES ($1, $2, 'Untitled')", [pageId, ownerUserId]);
+  await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", [pageId, ownerUserId]);
+  await pool.query("INSERT INTO page_claims (page_id, owner_user_id) VALUES ($1, $2)", [pageId, ownerUserId]);
+}
 
 describe("processPreviewJob", () => {
   it("stores a truncated plain-text preview and upserts on re-run", async () => {

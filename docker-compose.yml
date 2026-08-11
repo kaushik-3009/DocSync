@@ -39,6 +39,11 @@ services:
       # so a token issued by one is accepted by the other.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       # These replicas are only ever reached through the `lb` nginx service
       # below (never directly), and nginx.conf sets X-Forwarded-For to the
       # real client address on every request — so it's safe, and necessary,

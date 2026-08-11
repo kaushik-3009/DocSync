@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 import type * as Y from "yjs";
-import { serializeDocument } from "@collab/shared";
+import { getTitleText, serializeDocument } from "@collab/shared";
 import type { PageStore } from "../persistence/page-store.js";
 import { childLogger } from "../logger.js";
 
@@ -54,6 +54,12 @@ export async function processPreviewJob(pool: Pool, pageStore: PageStore, pageId
      ON CONFLICT (page_id) DO UPDATE SET preview = EXCLUDED.preview, updated_at = now()`,
     [pageId, preview]
   );
+  const title = getTitleText(doc).toString().trim();
+  if (title) {
+    await pool.query("UPDATE documents SET title = $2, updated_at = now() WHERE id = $1", [pageId, title.slice(0, 300)]);
+  } else {
+    await pool.query("UPDATE documents SET updated_at = now() WHERE id = $1", [pageId]);
+  }
   log.info({ event: "preview_updated", pageId }, "page preview refreshed");
 }
 

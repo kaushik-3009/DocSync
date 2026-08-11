@@ -40,6 +40,18 @@ variable "allowed_origin" {
   default     = ""
 }
 
+variable "enable_gemini" {
+  description = "Inject GEMINI_API_KEY from the runtime secret into gateway tasks. Populate the key before enabling."
+  type        = bool
+  default     = false
+}
+
+variable "enable_resend" {
+  description = "Inject Resend invitation-mail credentials from the runtime secret into gateway tasks. Populate both keys before enabling."
+  type        = bool
+  default     = false
+}
+
 variable "db_username" {
   description = "RDS application username."
   type        = string
