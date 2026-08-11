@@ -2,10 +2,10 @@
 
 # DocSync
 
-DocSync is a production-minded collaborative workspace for notes, source code,
-and visual canvases. It combines the immediacy of a shared editor with the
-durability, access control, recovery paths, and operational evidence expected
-from a distributed service.
+DocSync is a shared workspace for notes, source code, and visual canvases.
+Work together on the same page, share it with clear roles, ask the built-in
+assistant for help, review suggested edits before applying them, and return to
+earlier versions when you need to.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Node.js 24](https://img.shields.io/badge/node.js-24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -26,41 +26,45 @@ from a distributed service.
 
 ---
 
-## Highlights
+## Features
 
-- **Edit together in real time.** Multiple users work in the same block tree
-  with live presence, cursors, comments, mentions, code blocks, and visual
-  canvases.
-- **Keep every accepted edit durable.** Updates enter an append-only history,
-  snapshots accelerate replay, and restore creates a new auditable operation.
-- **Share safely.** Documents are private by default with explicit owner,
-  editor, and viewer roles, invitation acceptance, online notifications, and
-  server-enforced mutation checks.
-- **Use AI without surrendering control.** Ask questions about the current
-  page or describe a change in natural language. Proposed edits appear as a
-  readable diff and require explicit approval before they can alter the page.
-- **Run it like a distributed service.** Two gateway replicas share Postgres
-  and Redis state without sticky sessions, while workers handle search,
-  previews, and PDF export independently.
-- **Measure the system that users actually exercise.** The benchmark harness
-  sends authenticated binary collaborative edits through the full two-replica
-  topology, with convergence, latency, resource, and fault outcomes saved as
-  evidence.
+- **Blocks and canvases.** Combine headings, rich text, checklists, bullet lists,
+  code blocks, and tldraw canvases on one page. Press Enter after a code or
+  canvas block to continue with a normal paragraph.
+- **Real-time collaboration.** See live presence, cursors, comments, mentions,
+  search, link previews, and updates from other people as they arrive.
+- **Sharing and permissions.** New pages are private. Invite people as owners,
+  editors, or viewers, send email invitations, and show online accept/decline
+  notifications. Viewer permissions are enforced by the server, not only by
+  the interface.
+- **Gemini Document assistant.** Ask questions about the current page or
+  describe a change in a normal chat. Suggested edits are shown as a readable
+  diff and require approval before they change the document.
+- **Version history.** Rapid edits are grouped into
+  30-second entries, compares an entry with the previous version inline, and
+  restores an older version without deleting the history that came after it.
+- **Exports and background work.** PDF export, search indexing,
+  and link previews while the editor stays responsive.
 
 ## Architecture
 
-The synchronization path is intentionally explicit: clients exchange binary
-Yjs updates through a WebSocket gateway, Postgres owns durable history, and
-Redis propagates committed updates between gateway replicas. Authorization is
-checked at the server mutation boundary before an update can change state,
-fan out, or enqueue downstream work.
+The editor is a React/Vite client connected to a Node WebSocket gateway. Pages
+are stored in Postgres, Redis carries updates between gateway replicas, and a
+separate worker handles background jobs. Every change is checked, saved, and
+then shared with the other connected clients.
 
 <p align="center">
   <img src="./artifacts/screenshots/sys-arch.png" alt="System Architecture" width="800">
 </p>
 
 
-The same design runs in two environments. Locally, Nginx sits in front of two gateway containers, Postgres, and Redis, all managed by Docker Compose. On AWS, an Application Load Balancer sits in front of two ECS/Fargate gateway tasks backed by RDS PostgreSQL (Single-AZ) and ElastiCache Redis, with images pulled from ECR, secrets from Secrets Manager, and logs and metrics sent to CloudWatch. Both environments run the identical gateway code and the same Postgres-then-Redis write order.
+The same design runs in two environments. Locally, Nginx sits in front of two
+gateway containers, Postgres, and Redis, all managed by Docker Compose. On AWS,
+an Application Load Balancer sits in front of two ECS/Fargate gateway tasks
+backed by RDS PostgreSQL (Single-AZ) and ElastiCache Redis, with images pulled
+from ECR, secrets from Secrets Manager, and logs and metrics sent to CloudWatch.
+Both environments run the same gateway code and save each change before
+sharing it with the other replica.
 
 ### Data flow for an edit
 
@@ -79,28 +83,25 @@ sequenceDiagram
   G-->>B: apply Yjs update
 ~~~
 
-An accepted edit is authenticated and authorized at the WebSocket boundary, appended to Postgres, applied to the local Yjs document, and only then published through Redis to the other gateway. Durable history is always written before fanout, which keeps replay and recovery consistent.
+Each edit is checked at the WebSocket boundary, saved to Postgres, applied to
+the local page, and then sent through Redis to the other gateway. This keeps
+reconnect, replay, and version restore consistent across replicas.
 
-## Evidence from the system
+## Verification
 
-The AWS profile used two gateways, one worker, one Single-AZ database, and one
-Redis node in us-east-2. It was a short-lived deployment used to collect
-benchmark and failover evidence, and it has since been destroyed. No AWS
-environment is currently running for this repository.
+The repository includes repeatable local and cloud test paths. The short-lived
+AWS profile used two gateways, one worker, one Single-AZ database, and one
+Redis node in us-east-2; it was deprovisioned after testing.
 
-- Two gateway instances share document state without sticky sessions.
-- Accepted edits are written to Postgres before local apply, peer broadcast,
-  Redis fanout, or downstream jobs; snapshots and replay support recovery.
-- Authenticated 25/50/100-client collaboration tests run through the real
-  WebSocket path rather than `/health` or handshake-only probes.
-- The bounded AWS 100-client run achieved 100/100 convergence with 5.645 s p95
+- Authenticated 25/50/100-client collaboration tests run through the full
+  WebSocket path across two gateways.
+- The bounded AWS 100-client run reached 100/100 convergence with 5.645 s p95
   and 5.979 s p99 propagation latency.
-- 113 previously verified server tests cover authentication, RBAC, persistence,
-  fanout, recovery, invitations, and convergence; focused assistant tests cover
-  typed plans, provider failures, fresh document state, and stale-plan handling.
-- Browser-verified two-user flows cover private workspaces, invitation
-  acceptance, live presence, viewer write rejection, history, PDF export, and
-  reviewable assistant edits.
+- 113 server tests cover authentication, roles, persistence, fanout, recovery,
+  invitations, and concurrent editing; assistant tests cover provider errors,
+  fresh document state, and stale suggestions.
+- Browser checks cover private pages, invitation acceptance, live presence,
+  viewer write rejection, history, PDF export, and approved assistant edits.
 
 ## Technology
 
@@ -148,7 +149,7 @@ The repository includes Terraform for a repeatable, cost-bounded AWS topology
 using an ALB, two ECS/Fargate gateways, RDS PostgreSQL, ElastiCache Redis, ECR,
 Secrets Manager, CloudWatch, and a BullMQ worker. A short-lived staging
 environment was measured in us-east-2 for benchmark and failover evidence, then
-deprovisioned; it is not an always-on production service.
+deprovisioned.
 
 The AWS gateway and worker run the same container code as the local stack, so
 collaboration, RBAC, history, exports, and the AI edit workflow use the same
@@ -184,4 +185,3 @@ docker-compose.yml   Local multi-service development topology
 ## License
 
 MIT. See [LICENSE](LICENSE).
-</content>
