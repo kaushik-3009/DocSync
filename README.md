@@ -148,8 +148,7 @@ Open [http://localhost:5173](http://localhost:5173) in two tabs and use the same
 The repository includes Terraform for a repeatable, cost-bounded AWS topology
 using an ALB, two ECS/Fargate gateways, RDS PostgreSQL, ElastiCache Redis, ECR,
 Secrets Manager, CloudWatch, and a BullMQ worker. A short-lived staging
-environment was measured in us-east-2 for benchmark and failover evidence, then
-deprovisioned.
+environment was measured in us-east-2 for benchmark and failover evidence.
 
 The AWS gateway and worker run the same container code as the local stack, so
 collaboration, RBAC, history, exports, and the AI edit workflow use the same
