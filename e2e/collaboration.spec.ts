@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createDocument, openPage, registerUser, share, signedInContext } from "./helpers.js";
+import { controllableNetwork, createDocument, openPage, registerUser, share, signedInContext } from "./helpers.js";
 
 test("a new user can sign up through the UI and create a page", async ({ page }) => {
   await page.goto("/");
@@ -94,4 +94,37 @@ test("the Authors panel credits each collaborator's text", async ({ browser }) =
   await expect(legend).toContainText(owner.email);
   await expect(legend).toContainText(editor.email);
   await expect(ownerPage.locator(".authorship-document h2 .authorship-span")).toHaveCount(2);
+});
+
+test("edits made offline survive closing the tab and sync on reconnect", async ({ browser }) => {
+  const owner = await registerUser("owner");
+  const editor = await registerUser("roamer");
+  const pageId = await createDocument(owner, "Field notes");
+  await share(owner, pageId, editor, "editor");
+
+  const ownerPage = await openPage(await signedInContext(browser, owner), pageId);
+  const editorContext = await signedInContext(browser, editor);
+  const network = await controllableNetwork(editorContext);
+  let editorPage = await openPage(editorContext, pageId);
+  await ownerPage.locator(".doc-title-field").click();
+  await ownerPage.keyboard.type("Notes");
+  await expect(editorPage.locator(".doc-title-field")).toHaveText("Notes");
+  await expect(editorPage.getByText("Synced")).toBeVisible();
+
+  await network.goOffline();
+  await editorPage.locator(".doc-title-field").click();
+  await editorPage.keyboard.press("End");
+  await editorPage.keyboard.type(" from the train");
+  await expect(editorPage.getByText(/^Offline/)).toBeVisible();
+  // The edit exists only on this device: closing the tab drops the in-memory
+  // document, leaving the IndexedDB copy as its only home.
+  await editorPage.waitForTimeout(500);
+  await editorPage.close();
+  await ownerPage.waitForTimeout(500);
+  await expect(ownerPage.locator(".doc-title-field")).toHaveText("Notes");
+
+  await network.goOnline();
+  editorPage = await openPage(editorContext, pageId);
+  await expect(ownerPage.locator(".doc-title-field")).toHaveText("Notes from the train");
+  await expect(editorPage.locator(".doc-title-field")).toHaveText("Notes from the train");
 });

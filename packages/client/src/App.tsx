@@ -59,6 +59,43 @@ import type { WebsocketProvider } from "y-websocket";
 import { AssistantPanel } from "./AssistantPanel.js";
 import { InvitationToast } from "./InvitationToast.js";
 
+/** Small localStorage cache for facts the app needs to start offline. */
+function readCached<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? null : (JSON.parse(raw) as T);
+  } catch {
+    return null;
+  }
+}
+
+function writeCached(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: offline start just won't be available.
+  }
+}
+
+/** Browser connectivity, updated by online/offline events. A socket can take
+ *  tens of seconds to notice a dead network; these events are immediate. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  return online;
+}
+
+const AUTH_REQUIRED_KEY = "docsync-auth-required";
+const roleCacheKey = (userId: string, pageId: string) => `docsync-role:${userId}:${pageId}`;
+
 function getPageIdFromUrl(): string {
   const params = new URLSearchParams(window.location.search);
   return params.get("page") ?? "";
@@ -80,7 +117,9 @@ export function App() {
   // guest-mode dev instance, assuming "not required" would let the app render
   // (and its WS connection silently fail to authenticate) before redirecting
   // into the gate a moment later.
-  const [authRequired, setAuthRequired] = useState<boolean | null>(null);
+  // Seeded from the last successful health check so the app can open
+  // offline; refreshed whenever the server is reachable.
+  const [authRequired, setAuthRequired] = useState<boolean | null>(() => readCached<boolean>(AUTH_REQUIRED_KEY));
   const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   // Don't even attempt the WS connection until we know it has a real chance
@@ -95,6 +134,7 @@ export function App() {
     provider,
     blocks,
     synced,
+    loadedFromDevice,
     connectionDenied,
     connectionDeniedReason,
     localUser,
@@ -104,7 +144,9 @@ export function App() {
     addComment,
     toggleCommentResolved,
     removeComment,
-  } = useYDoc(pageId, authUser, canConnect);
+    // Signed-in users keep an on-device copy of each page so it opens and
+    // stays editable offline; Yjs merges it with the server on reconnect.
+  } = useYDoc(pageId, authUser, canConnect, Boolean(authUser));
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [creatingDocument, setCreatingDocument] = useState(false);
@@ -144,15 +186,22 @@ export function App() {
     };
   }, [pageId]);
   const [theme, toggleTheme] = useTheme();
+  const online = useOnline();
   const closeSharePanel = useCallback(() => setShowSharePanel(false), []);
 
   useEffect(() => {
-    fetchHealth()
-      .then((res) => {
-        setAuthRequired(res.authRequired);
-        setHealthUnavailable(false);
-      })
-      .catch(() => setHealthUnavailable(true));
+    const check = () =>
+      fetchHealth()
+        .then((res) => {
+          setAuthRequired(res.authRequired);
+          writeCached(AUTH_REQUIRED_KEY, res.authRequired);
+          setHealthUnavailable(false);
+        })
+        // Only a first-ever visit is blocked; otherwise keep working offline.
+        .catch(() => setHealthUnavailable(readCached<boolean>(AUTH_REQUIRED_KEY) === null));
+    void check();
+    window.addEventListener("online", check);
+    return () => window.removeEventListener("online", check);
   }, []);
 
   const flatIds = useMemo(() => flattenBlockIds(blocks), [blocks]);
@@ -172,7 +221,10 @@ export function App() {
     setShowVersionHistory(false);
     setShowAuthorship(false);
     setShowSharePanel(false);
-    setPageRole(null);
+    // The last role confirmed for this page lets an offline session keep
+    // editing; the gateway re-checks it on every commit once reconnected.
+    setPageRole(authUser && pageId ? readCached<Role>(roleCacheKey(authUser.id, pageId)) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
   // Powers @mention autocomplete: who can even be mentioned on *this* page.
@@ -197,6 +249,7 @@ export function App() {
         if (!cancelled) {
           const current = res.roles.find((role) => role.userId === authUser.id);
           setPageRole(current?.role ?? null);
+          writeCached(roleCacheKey(authUser.id, pageId), current?.role ?? null);
           setMentionEmails(res.roles.map((r) => r.email));
         }
       })
@@ -436,18 +489,22 @@ export function App() {
         <div className="doc-toolbar">
           <span
             className="doc-sync-status"
-            style={{ color: connectionDenied ? "var(--color-danger)" : synced ? "var(--color-accent)" : "var(--color-warning)" }}
+            style={{
+              color: connectionDenied ? "var(--color-danger)" : synced && online ? "var(--color-accent)" : "var(--color-warning)",
+            }}
           >
             <span className="doc-sync-dot" />
             {connectionDenied
               ? connectionDeniedReason === "access"
                 ? "You don't have access to this page"
                 : "Sign in again to continue"
-              : synced
-                ? "Synced"
-                : navigator.onLine
-                  ? "Reconnecting — changes may be pending"
-                  : "Offline — changes will sync when reconnected"}
+              : !online
+                ? loadedFromDevice
+                  ? "Offline — editing the copy on this device; changes sync when you reconnect"
+                  : "Offline — changes will sync when reconnected"
+                : synced
+                  ? "Synced"
+                  : "Reconnecting — changes may be pending"}
           </span>
           <PresenceBar localUser={localUser} peers={peers} />
           <div style={{ flex: 1 }} />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { HTTP_BASE } from "./config.js";
+import { clearOfflineCopies } from "./offline.js";
 
 const SESSION_KEY = "docsync-session";
 /** Refresh this long before the access token expires. */
@@ -79,7 +80,11 @@ export function clearToken(): void {
 /** Ends the session on the server too, so the refresh token can't be reused. */
 export async function signOut(): Promise<void> {
   const session = readSession();
+  const user = getAuthUser();
   clearToken();
+  // Offline copies are per user; remove them so the next person on this
+  // machine can't read them.
+  if (user) await clearOfflineCopies(user.id).catch(() => undefined);
   if (!session) return;
   await fetch(`${HTTP_BASE}/auth/logout`, {
     method: "POST",

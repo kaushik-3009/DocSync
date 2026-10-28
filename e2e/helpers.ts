@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Browser, BrowserContext, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Page, WebSocketRoute } from "@playwright/test";
 import { E2E_API_URL } from "../playwright.config.js";
 
 export interface TestUser {
@@ -57,4 +57,34 @@ export async function openPage(context: BrowserContext, pageId: string): Promise
   const page = await context.newPage();
   await page.goto(`/?page=${pageId}`);
   return page;
+}
+
+/**
+ * Real network loss for a context. `context.setOffline` flips navigator.onLine
+ * but does not reliably sever an already-open WebSocket, so the collaboration
+ * socket is routed through Playwright and cut explicitly.
+ */
+export async function controllableNetwork(context: BrowserContext): Promise<{ goOffline(): Promise<void>; goOnline(): Promise<void> }> {
+  let offline = false;
+  const live = new Set<WebSocketRoute>();
+  await context.routeWebSocket(/\/ws\//, (socket) => {
+    if (offline) {
+      void socket.close();
+      return;
+    }
+    socket.connectToServer();
+    live.add(socket);
+    socket.onClose(() => live.delete(socket));
+  });
+  return {
+    async goOffline() {
+      offline = true;
+      await context.setOffline(true);
+      await Promise.all([...live].map((socket) => socket.close()));
+    },
+    async goOnline() {
+      offline = false;
+      await context.setOffline(false);
+    },
+  };
 }

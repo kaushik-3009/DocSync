@@ -15,6 +15,7 @@ import {
 import { getLocalUser } from "./localUser.js";
 import { clearToken, getStoredToken, refreshSession, type AuthUser } from "./auth.js";
 import { WS_URL, wsProtocols } from "./config.js";
+import { offlineStoreName, openOfflineCopy } from "./offline.js";
 
 /** Reads the current access token each time y-websocket (re)connects, so a
  *  token refreshed in the background is picked up without rebuilding the
@@ -42,6 +43,8 @@ export interface YDocHandle {
   connectionDenied: boolean;
   /** Why the gateway permanently refused this session, when it did. */
   connectionDeniedReason: "auth" | "access" | null;
+  /** True once a copy saved on this device has been loaded into the doc. */
+  loadedFromDevice: boolean;
   localUser: { id: string; name: string; color: string };
   /** Other connected clients' presence, excluding our own. */
   peers: PresenceState[];
@@ -68,7 +71,11 @@ export interface YDocHandle {
  * (it's part of the y-websocket/y-protocols convention) — this hook is what
  * actually puts data in it.
  */
-export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = true): YDocHandle {
+/**
+ * `offline`: also keep a copy of the page in IndexedDB so it opens and stays
+ * editable without a connection, then merges when the gateway is reachable.
+ */
+export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = true, offline = false): YDocHandle {
   // A fresh Y.Doc per page: pageId is the key, not an input.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const doc = useMemo(() => new Y.Doc(), [pageId]);
@@ -80,6 +87,22 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
   const [blocks, setBlocks] = useState<SerializedBlock[]>([]);
   const [comments, setComments] = useState<SerializedComment[]>([]);
   const [synced, setSynced] = useState(false);
+  const [loadedFromDevice, setLoadedFromDevice] = useState(false);
+
+  // Separate from the connection effect so enabling offline copies (e.g.
+  // once the page role resolves) never reconnects the WebSocket.
+  const offlineName = offline && authUser && pageId ? offlineStoreName(authUser.id, pageId) : null;
+  useEffect(() => {
+    setLoadedFromDevice(false);
+    if (!offlineName) return;
+    const copy = openOfflineCopy(offlineName, doc);
+    let active = true;
+    void copy.ready.then(() => active && setLoadedFromDevice(true));
+    return () => {
+      active = false;
+      void copy.close();
+    };
+  }, [doc, offlineName]);
   const [connectionDenied, setConnectionDenied] = useState(false);
   const [connectionDeniedReason, setConnectionDeniedReason] = useState<"auth" | "access" | null>(null);
   const [peers, setPeers] = useState<PresenceState[]>([]);
@@ -286,6 +309,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     provider,
     blocks,
     synced,
+    loadedFromDevice,
     connectionDenied,
     connectionDeniedReason,
     localUser,
