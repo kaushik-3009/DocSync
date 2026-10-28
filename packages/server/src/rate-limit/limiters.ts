@@ -10,11 +10,11 @@ import type Redis from "ioredis";
 /**
  * Backed by Redis when available (so limits are shared across instances —
  * without this, a single abusive client round-robined across N instances by
- * the Phase 4 load balancer would effectively get N times the limit) and by
+ * the load balancer would effectively get N times the limit) and by
  * an in-process fallback otherwise. The in-memory fallback is a real,
- * documented limitation, not a silent gap: see ARCHITECTURE.md's Phase 7
+ * documented limitation, not a silent gap: see the README's
  * section and the `instanceOnly` idea already established for presence
- * (Phase 3/4) and applied the same way here.
+ * and applied the same way here.
  */
 function makeLimiter(redis: Redis | null, opts: Omit<IRateLimiterOptions, "storeClient">): RateLimiterAbstract {
   return redis ? new RateLimiterRedis({ storeClient: redis, ...opts }) : new RateLimiterMemory(opts);

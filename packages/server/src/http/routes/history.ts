@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { z } from "zod/v4";
-import { restoreBlocksFromSnapshot, serializeDocument, serializeDocumentWithDeltas } from "@collab/shared";
+import { restoreBlocksFromSnapshot, serializeDocument, serializeDocumentWithDeltas } from "@docsync/shared";
 import { recordAudit } from "../../auth/audit.js";
 import { HttpError } from "../guards.js";
 import { bearer, pageIdSchema, pageParams, type RoutePlugin } from "./types.js";

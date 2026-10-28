@@ -3,7 +3,7 @@ import { check, sleep } from "k6";
 import { Counter } from "k6/metrics";
 
 /**
- * Proves Phase 7's general HTTP rate limiter (120 req/60s per IP) actually
+ * Proves the general HTTP rate limiter (120 req/60s per IP) actually
  * engages under load, rather than just trusting the unit test's in-memory
  * check. All k6 VUs share one machine's IP, which is exactly the scenario
  * the rate limiter is designed to catch — this script deliberately exceeds

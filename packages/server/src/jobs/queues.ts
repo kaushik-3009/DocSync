@@ -33,7 +33,7 @@ export interface PdfExportJobData {
 /**
  * Thin wrapper the rest of the server depends on instead of BullMQ directly —
  * same "seam, not a leaked implementation detail" pattern as RoomBroadcaster
- * (Phase 4) and PageStore (Phase 2). A Room only ever calls
+ * and PageStore. A Room only ever calls
  * `enqueueSearchIndex`/`enqueuePreview`; it has no idea BullMQ (or Redis)
  * is involved, so swapping job runners later doesn't touch Room.
  */

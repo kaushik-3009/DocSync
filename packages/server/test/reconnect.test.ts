@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway } from "../src/ws-gateway.js";
 import type { WebSocketServer } from "ws";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
-import type { PresenceState } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
+import type { PresenceState } from "@docsync/shared";
 
 let httpServer: Server;
 let port: number;

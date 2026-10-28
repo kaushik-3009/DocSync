@@ -3,7 +3,7 @@ import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
 import type { WebSocket } from "ws";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createBlock, serializeDocument, MessageType } from "@collab/shared";
+import { createBlock, serializeDocument, MessageType } from "@docsync/shared";
 import { Room } from "../src/room.js";
 import type { PageStore } from "../src/persistence/page-store.js";
 import type { RoomBroadcaster } from "../src/redis/broadcaster.js";

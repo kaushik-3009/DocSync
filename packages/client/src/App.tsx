@@ -17,7 +17,7 @@ import {
   type SerializedComment,
   type Role,
   canEditContent,
-} from "@collab/shared";
+} from "@docsync/shared";
 import { useYDoc } from "./useYDoc.js";
 import { RichText } from "./RichText.js";
 // tldraw and CodeMirror's language packages are the two biggest contributors
@@ -391,8 +391,8 @@ export function App() {
       });
   }
 
-  // Enqueue → poll the job every ~1s → download the finished PDF, per
-  // docs/DESIGN.md section 9. Each step degrades to an inline error state
+  // Enqueue → poll the job every ~1s → download the finished PDF. Each step
+  // degrades to an inline error state
   // (never a thrown/unhandled rejection) since this whole pipeline is
   // optional infra that's simply absent without REDIS_URL/DATABASE_URL.
   function exportPdf() {

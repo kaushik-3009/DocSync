@@ -39,7 +39,7 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
       role="dialog"
       aria-label={mode === "signin" ? "Sign in" : "Create account"}
     >
-      <div className="auth-brand">Collab</div>
+      <div className="auth-brand">DocSync</div>
       <h1 className="auth-title">{mode === "signin" ? "Sign in" : "Create your account"}</h1>
       <p className="auth-subtitle">
         {mode === "signin"

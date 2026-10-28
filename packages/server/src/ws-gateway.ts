@@ -3,7 +3,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Pool } from "pg";
 import type { RateLimiterAbstract } from "rate-limiter-flexible";
 import { WebSocketServer, type WebSocket } from "ws";
-import { pageIdFromPath, type Role } from "@collab/shared";
+import { pageIdFromPath, type Role } from "@docsync/shared";
 import type { Room } from "./room.js";
 import { type RoomRegistry } from "./room-registry.js";
 import { childLogger } from "./logger.js";

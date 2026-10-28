@@ -27,7 +27,7 @@ const SNAPSHOT_INTERVAL = 50;
  * (connection pooling, transactions, table layout) stays behind this
  * interface so Room/RoomRegistry only ever call `loadPage` / `recordUpdate`
  * / `listVersions` / `replayAt` — matching the seam already drawn around
- * RoomRegistry for Phase 4 (swap the backing registry, not its callers).
+ * RoomRegistry (swap the backing implementation, not its callers).
  */
 export class PageStore {
   constructor(private readonly pool: Pool) {}

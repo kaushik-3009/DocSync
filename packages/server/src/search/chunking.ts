@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type * as Y from "yjs";
-import { getTitleText, serializeDocument, type SerializedBlock } from "@collab/shared";
+import { getTitleText, serializeDocument, type SerializedBlock } from "@docsync/shared";
 
 export interface DocumentChunk {
   index: number;

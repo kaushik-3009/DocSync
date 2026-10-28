@@ -2,8 +2,8 @@ import { propagation, context, type Context } from "@opentelemetry/api";
 
 /**
  * Carries a trace across boundaries Node's async_hooks-based context
- * propagation doesn't reach on its own: a Redis pub/sub frame (Phase 4's
- * cross-instance fanout) or a BullMQ job payload (Phase 6's background job
+ * propagation doesn't reach on its own: a Redis pub/sub frame (cross-instance
+ * fanout) or a BullMQ job payload (background job
  * pipeline). Both are just "serialize the active span as a W3C `traceparent`
  * string, hand it to whatever transport, extract it back into a Context on
  * the other side" — this module is that pair of functions, used by

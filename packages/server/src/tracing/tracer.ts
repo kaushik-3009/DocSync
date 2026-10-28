@@ -21,7 +21,7 @@ const OTLP_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 /**
  * Spans are always created (cheap, in-process objects) rather than following
  * the "optional collaborator, null when absent" pattern most other features
- * in this codebase use — same "observability is always on" reasoning Phase 7
+ * in this codebase use — same "observability is always on" reasoning
  * used for Prometheus metrics. What varies with OTEL_EXPORTER_OTLP_ENDPOINT
  * is only where finished spans go: a real collector (see docker-compose.yml's
  * `jaeger` service) when it's set, or nowhere when it's not — so every

@@ -6,7 +6,7 @@ import { PageStore } from "../src/persistence/page-store.js";
 import { FanoutOutbox, type CommittedUpdatePublisher } from "../src/persistence/fanout-outbox.js";
 import { Room } from "../src/room.js";
 import type { RoomBroadcaster } from "../src/redis/broadcaster.js";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 
 let pool: Pool;
 

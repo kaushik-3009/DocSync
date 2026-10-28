@@ -56,7 +56,7 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.6
         version: 6.43.6
-      '@collab/shared':
+      '@docsync/shared':
         specifier: workspace:*
         version: link:../shared
       codemirror:
@@ -114,7 +114,7 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1158.0
         version: 3.1158.0
-      '@collab/shared':
+      '@docsync/shared':
         specifier: workspace:*
         version: link:../shared
       '@fastify/cors':

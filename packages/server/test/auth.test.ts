@@ -20,7 +20,7 @@ import {
 import { recordAudit, listAuditLog } from "../src/auth/audit.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway, type WsAuthConfig } from "../src/ws-gateway.js";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
 import { createDocument } from "../src/documents/store.js";
 
 const JWT_SECRET = "test-secret";

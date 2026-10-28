@@ -10,12 +10,12 @@ import { computeTextDiff, type DeltaOp } from "./delta.js";
  *
  * Each block is its own Y.Map so that inserting/editing/reordering one block
  * never touches the Yjs state of any other block — that's what makes blocks
- * "independently syncable" and keeps future per-block features (Phase 2
- * snapshots, Phase 6 search indexing) cheap: you can diff/snapshot/index one
+ * "independently syncable" and keeps future per-block features (snapshots,
+ * search indexing) cheap: you can diff/snapshot/index one
  * block's Y.Map without walking the whole document.
  *
  * Nesting: every block's `children` field (a `Y.Array<string>`, present
- * since Phase 1 but unused until now) holds the ids of blocks indented
+ * on every block) holds the ids of blocks indented
  * under it, forming a real tree — `root` is just the depth-0 level of that
  * same tree, not a separate concept. A block's *current* parent (root, or
  * some other block's `children` array) is never stored on the block itself;
@@ -189,8 +189,7 @@ export function outdentBlock(doc: Y.Doc, blockId: string): void {
  * suffix is deleted from the original `Y.Text` — never delete-and-reinsert
  * the kept prefix, which would tombstone its underlying CRDT items and
  * orphan any concurrent remote edit anchored inside it (e.g. someone else
- * formatting a word in the prefix at the same instant). See docs/DESIGN.md
- * Section 4.
+ * formatting a word in the prefix at the same instant).
  */
 export function splitBlock(doc: Y.Doc, blockId: string, offset: number, newBlockId: string): boolean {
   const blocksMap = getBlocksMap(doc);
@@ -371,8 +370,7 @@ export interface SerializedBlockWithDelta extends Omit<SerializedBlock, "childre
   /** The block's formatted content as a Quill/Yjs-style delta — needed
    *  because a version-history preview must render bold/italic/link marks
    *  without instantiating a live `RichText`/`CodeBlock`/`CanvasBlock` bound
-   *  to a Y.Doc state that was never actually live (see docs/DESIGN.md
-   *  Section 4). `renderDelta()` (packages/client/src/renderDelta.tsx) is
+   *  to a Y.Doc state that was never actually live. `renderDelta()` (packages/client/src/renderDelta.tsx) is
    *  the one renderer both the live editor and this preview share. */
   delta: DeltaOp[];
   children: SerializedBlockWithDelta[];
@@ -414,7 +412,7 @@ export function serializeDocumentWithDeltas(doc: Y.Doc): SerializedBlockWithDelt
  * rebuilding would replace even *unchanged* blocks' Y.Map/Y.Text instances,
  * silently orphaning any in-flight concurrent edit targeting the old
  * instances (e.g. someone mid-keystroke in a paragraph that didn't change
- * between versions). See docs/DESIGN.md Section 4.
+ * between versions)..
  *
  * A block that *moved* to a different parent between the live doc and the
  * snapshot is recreated fresh at its new location rather than relocated in

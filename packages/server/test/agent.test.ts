@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
-import { createBlock, getBlockText, getTitleText, serializeDocument } from "@collab/shared";
+import { createBlock, getBlockText, getTitleText, serializeDocument } from "@docsync/shared";
 import { AGENT_PLAN_JSON_SCHEMA, applyAgentPlan, parseAgentPlan } from "../src/ai/agent.js";
 
 describe("Gemini editing agent boundary", () => {

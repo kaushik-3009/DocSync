@@ -1,4 +1,4 @@
-import type { BlockType } from "@collab/shared";
+import type { BlockType } from "@docsync/shared";
 
 /** One list of block types, each with the label/icon a human reads — shared
  *  by the slash-command menu (typing "/") and the gutter's type-change

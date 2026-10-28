@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 import { findUserByEmail } from "../auth/users.js";
 
 export type InvitationRole = Exclude<Role, "owner">;

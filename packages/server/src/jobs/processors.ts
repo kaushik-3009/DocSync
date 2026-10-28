@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 import type * as Y from "yjs";
-import { getTitleText, serializeDocument } from "@collab/shared";
+import { getTitleText, serializeDocument } from "@docsync/shared";
 import type { PageStore } from "../persistence/page-store.js";
 import { childLogger } from "../logger.js";
 
@@ -18,7 +18,7 @@ const PREVIEW_LENGTH = 200;
  * (jobs/workers.ts) is a thin adapter around these — which is also why
  * these are unit-tested directly against pg-mem rather than through a real
  * queue: BullMQ relies on Redis Lua scripting for its atomicity guarantees,
- * which ioredis-mock (used for Phase 4's fanout tests) doesn't reliably
+ * which ioredis-mock (used by the fast unit suite) doesn't reliably
  * support. Testing "does the job body do the right thing to Postgres"
  * doesn't require also proving "does BullMQ dequeue it" — that part is
  * covered by the manual verification steps in TESTING.md against a real

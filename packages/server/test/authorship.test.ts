@@ -3,7 +3,7 @@ import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
 import type { WebSocket } from "ws";
 import { describe, expect, it, vi } from "vitest";
-import { createBlock, getBlockText, MessageType } from "@collab/shared";
+import { createBlock, getBlockText, MessageType } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { textSpans, clientIdsInUpdate } from "../src/authorship/attribution.js";
 import { AuthorshipStore } from "../src/authorship/store.js";

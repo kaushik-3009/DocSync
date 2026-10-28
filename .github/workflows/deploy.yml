@@ -102,8 +102,8 @@ jobs:
       - name: Build and publish the client
         if: vars.CLIENT_BUCKET != ''
         run: |
-          pnpm install --frozen-lockfile --filter @collab/client...
-          VITE_WS_URL="${{ vars.API_WS_URL }}" pnpm --filter @collab/client build
+          pnpm install --frozen-lockfile --filter @docsync/client...
+          VITE_WS_URL="${{ vars.API_WS_URL }}" pnpm --filter @docsync/client build
           # Hashed assets are immutable; index.html must always revalidate.
           aws s3 sync packages/client/dist "s3://${{ vars.CLIENT_BUCKET }}" --delete \
             --exclude index.html --cache-control "public,max-age=31536000,immutable"

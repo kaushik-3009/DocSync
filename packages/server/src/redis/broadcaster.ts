@@ -89,7 +89,7 @@ export class RedisRoomBroadcaster implements RoomBroadcaster, CommittedUpdatePub
 
       // Continues the originating instance's trace on this instance — this is
       // what lets a single edit's trace span both processes behind the
-      // Phase 4 load balancer, not just the one that received the WS message.
+      // load balancer, not just the one that received the WS message.
       context.with(contextFromTraceparent(traceparent), () => {
         if (type === MSG_UPDATE) {
           handlers.onUpdate(payload);

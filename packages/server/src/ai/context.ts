@@ -1,4 +1,4 @@
-import { getTitleText, serializeDocument, type SerializedBlock } from "@collab/shared";
+import { getTitleText, serializeDocument, type SerializedBlock } from "@docsync/shared";
 import type { PageStore } from "../persistence/page-store.js";
 import type { Room } from "../room.js";
 

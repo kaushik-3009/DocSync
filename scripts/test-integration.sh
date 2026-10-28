@@ -38,7 +38,7 @@ node -e '
 const fs=require("node:fs");
 const [file,runId,started,stages]=process.argv.slice(1);
 const reports=JSON.parse(stages).map((id)=>({runId:id,clientResults:`artifacts/benchmarks/${id}/client-results.json`,collection:`artifacts/benchmarks/${id}/collection-summary.json`}));
-const result={schemaVersion:1,runId,startedAt:started,finishedAt:new Date().toISOString(),topology:"nginx + two gateways + Postgres + Redis + dedicated BullMQ worker",stages:reports,claims:["real authenticated Yjs wire protocol exercised through nginx","both gateway participation required for a passing stage","durable/recovery claims require the separate chaos and backup gates"],unitSuite:"pnpm --filter @collab/server test"};
+const result={schemaVersion:1,runId,startedAt:started,finishedAt:new Date().toISOString(),topology:"nginx + two gateways + Postgres + Redis + dedicated BullMQ worker",stages:reports,claims:["real authenticated Yjs wire protocol exercised through nginx","both gateway participation required for a passing stage","durable/recovery claims require the separate chaos and backup gates"],unitSuite:"pnpm --filter @docsync/server test"};
 fs.writeFileSync(file,JSON.stringify(result,null,2)+"\n");
 ' "$output_dir/manifest.json" "$run_id" "$started_at" "$(printf '%s\n' "${stages[@]}" | node -e 'const fs=require("node:fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8").trim().split(/\n+/).filter(Boolean)))')"
 

@@ -9,8 +9,8 @@ import { RedisRoomBroadcaster } from "../src/redis/broadcaster.js";
 import { PageStore } from "../src/persistence/page-store.js";
 import { Room } from "../src/room.js";
 import { getCurrentSeq } from "../src/persistence/ops-log.js";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
-import type { PresenceState } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
+import type { PresenceState } from "@docsync/shared";
 
 /**
  * Simulates two separate server processes sharing one Redis backend by

@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: collab-workspace-api
+    name: docsync-api
     runtime: node
     plan: starter
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @collab/server build
-    startCommand: pnpm --filter @collab/server start
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @docsync/server build
+    startCommand: pnpm --filter @docsync/server start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
@@ -13,12 +13,12 @@ services:
         value: "10000"
       - key: DATABASE_URL
         fromDatabase:
-          name: collab-workspace-db
+          name: docsync-db
           property: connectionString
       - key: REDIS_URL
         fromService:
           type: redis
-          name: collab-workspace-redis
+          name: docsync-redis
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
@@ -26,7 +26,7 @@ services:
         sync: false
 
   - type: redis
-    name: collab-workspace-redis
+    name: docsync-redis
     plan: starter
     maxmemoryPolicy: noeviction
     ipAllowList:
@@ -34,14 +34,14 @@ services:
         description: Render services
 
   - type: web
-    name: collab-workspace-client
+    name: docsync-client
     runtime: static
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @collab/client build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @docsync/client build
     staticPublishPath: packages/client/dist
     envVars:
       - key: VITE_WS_URL
         sync: false
 
 databases:
-  - name: collab-workspace-db
+  - name: docsync-db
     plan: starter

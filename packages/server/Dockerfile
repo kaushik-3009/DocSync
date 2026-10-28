@@ -10,14 +10,14 @@ COPY packages/shared/package.json packages/shared/package.json
 COPY packages/server/package.json packages/server/package.json
 
 FROM base AS build
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --filter @collab/server...
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --filter @docsync/server...
 COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY packages/server packages/server
-RUN pnpm --filter @collab/server build
+RUN pnpm --filter @docsync/server build
 
 FROM base AS prod-deps
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --prod --filter @collab/server...
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --prod --filter @docsync/server...
 
 # AWS RDS CA bundle so the gateway can verify TLS to RDS.
 FROM alpine:3.20 AS rds-ca

@@ -16,7 +16,7 @@ import {
   commentsForBlock,
   getBlockText,
   getRootOrder,
-} from "@collab/shared";
+} from "@docsync/shared";
 
 describe("block types", () => {
   it("defaults to paragraph, unchecked, and can change type", () => {

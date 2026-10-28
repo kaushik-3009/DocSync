@@ -8,7 +8,7 @@ import { processSearchIndexJob, processPreviewJob, processPdfExportJob } from ".
 import { searchPages } from "../src/jobs/search.js";
 import { createUser } from "../src/auth/users.js";
 import { grantRole } from "../src/auth/rbac.js";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 
 let pool: Pool;
 let pageStore: PageStore;

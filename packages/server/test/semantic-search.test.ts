@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { newDb } from "pg-mem";
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBlock, getTitleText } from "@collab/shared";
+import { createBlock, getTitleText } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { chunkDocument } from "../src/search/chunking.js";
 import { HashingEmbedder, type Embedder } from "../src/ai/embeddings.js";

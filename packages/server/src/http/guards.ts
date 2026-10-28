@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import type { Pool } from "pg";
-import { roleAtLeast, type Role } from "@collab/shared";
+import { roleAtLeast, type Role } from "@docsync/shared";
 import { verifyToken } from "../auth/jwt.js";
 import { getExistingRole } from "../auth/rbac.js";
 import type { PageStore } from "../persistence/page-store.js";

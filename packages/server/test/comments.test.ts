@@ -9,7 +9,7 @@ import {
   commentsForBlock,
   serializeComments,
   extractMentionEmails,
-} from "@collab/shared";
+} from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { createUser } from "../src/auth/users.js";
 import { MentionsStore } from "../src/comments/mentions-store.js";

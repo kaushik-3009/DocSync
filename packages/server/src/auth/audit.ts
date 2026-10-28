@@ -10,7 +10,7 @@ export interface AuditEntry {
   metadata?: Record<string, unknown>;
 }
 
-/** Fire-and-forget, same tradeoff as Room's persistence path in Phase 2 — an audit
+/** Fire-and-forget, an audit
  *  write failing shouldn't add latency to (or block) the auth/collab action itself,
  *  it should just be logged so it's visible that the audit trail has a gap. */
 export function recordAudit(pool: Pool, entry: AuditEntry): void {

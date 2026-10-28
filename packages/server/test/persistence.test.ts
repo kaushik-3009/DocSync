@@ -6,7 +6,7 @@ import { appendOp, getOpsInRange, getCurrentSeq, groupOpSummaries, updateFingerp
 import { saveSnapshot, getLatestSnapshot, listSnapshotSeqs, listSnapshots } from "../src/persistence/snapshots.js";
 import { replayDocument } from "../src/persistence/replay.js";
 import { PageStore } from "../src/persistence/page-store.js";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
 
 let pool: Pool;
 

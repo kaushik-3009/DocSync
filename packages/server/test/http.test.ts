@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import * as Y from "yjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { buildApp, type App } from "../src/http/app.js";
 import { PageStore } from "../src/persistence/page-store.js";

@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 import { Room } from "../src/room.js";
 import { loadFreshAssistantState } from "../src/ai/context.js";
 

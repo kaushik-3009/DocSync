@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import { z } from "zod/v4";
-import { getTitleText, serializeDocumentWithDeltas } from "@collab/shared";
+import { getTitleText, serializeDocumentWithDeltas } from "@docsync/shared";
 import { recordAudit } from "../../auth/audit.js";
 import { createShareLink, listShareLinks, resolveShareToken, revokeShareLink } from "../../sharing/share-links.js";
 import { HttpError } from "../guards.js";

@@ -1,4 +1,4 @@
-import type { SerializedBlock } from "@collab/shared";
+import type { SerializedBlock } from "@docsync/shared";
 import { z } from "zod/v4";
 import { AGENT_PLAN_JSON_SCHEMA, agentPlanSchema, parseAgentPlan, providerJsonSchema, type AgentPlan } from "./agent.js";
 

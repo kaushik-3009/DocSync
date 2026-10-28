@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { dedupePresenceByUser } from "@collab/shared";
+import { dedupePresenceByUser } from "@docsync/shared";
 import { createDocument, listDocumentsForUser } from "../../documents/store.js";
 import { listNotifications } from "../../invitations/store.js";
 import { recordAudit, listAuditLog } from "../../auth/audit.js";

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { pickPresenceColor } from "@collab/shared";
+import { pickPresenceColor } from "@docsync/shared";
 import { fetchAuthorship, type AuthorshipSpan, type PageAuthorship } from "./api.js";
 
 const UNKNOWN_COLOR = "#9a9a92";

@@ -11,7 +11,7 @@ const log = childLogger({ module: "room-registry" });
  * this process. Callers only use getOrCreateRoom/releaseRoom.
  *
  * getOrCreateRoom is async because creating a Room may mean loading its
- * document from Postgres (Phase 2 persistence) first. Concurrent callers
+ * document from Postgres first. Concurrent callers
  * for the same brand-new pageId share one in-flight load via `pending`,
  * so two clients connecting to the same new page at once don't trigger two
  * separate replays.

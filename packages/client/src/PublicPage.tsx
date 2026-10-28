@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SerializedBlockWithDelta } from "@collab/shared";
+import type { SerializedBlockWithDelta } from "@docsync/shared";
 import { fetchPublicPage } from "./api.js";
 import { renderDelta } from "./renderDelta.js";
 

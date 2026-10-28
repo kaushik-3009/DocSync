@@ -2,7 +2,7 @@ import type Redis from "ioredis";
 import { createTestRedis } from "./helpers/test-redis.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { context, trace } from "@opentelemetry/api";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { RedisRoomBroadcaster } from "../src/redis/broadcaster.js";

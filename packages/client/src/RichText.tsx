@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import * as Y from "yjs";
-import { computeTextDiff, type DeltaOp } from "@collab/shared";
+import { computeTextDiff, type DeltaOp } from "@docsync/shared";
 import { buildDeltaDom } from "./deltaDom.js";
 import { getCaretCharOffset, getSelectionCharRange, setCaretCharOffset, getOffsetClientRect } from "./caret.js";
 import { registerBlockElement, consumePendingFocus } from "./blockFocus.js";

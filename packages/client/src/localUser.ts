@@ -1,4 +1,4 @@
-import { pickPresenceColor } from "@collab/shared";
+import { pickPresenceColor } from "@docsync/shared";
 import type { AuthUser } from "./auth.js";
 
 const ADJECTIVES = ["Swift", "Quiet", "Bold", "Calm", "Bright", "Sharp", "Gentle", "Brave"];
@@ -15,7 +15,7 @@ const ANIMALS = ["Fox", "Owl", "Otter", "Falcon", "Lynx", "Heron", "Wolf", "Hare
  * identity: generated once and cached in sessionStorage so a refresh keeps
  * the same name/color/cursor identity, while a second tab (sessionStorage
  * isn't shared across tabs) is naturally a distinct user — exactly the
- * two-tab test setup this project has used since Phase 1.
+ * two-tab collaboration test setup.
  */
 export function getLocalUser(authUser?: AuthUser | null): { id: string; name: string; color: string } {
   if (authUser) {

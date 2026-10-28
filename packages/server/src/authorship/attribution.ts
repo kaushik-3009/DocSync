@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { getBlockText, getTitleText, serializeDocument, type SerializedBlock } from "@collab/shared";
+import { getBlockText, getTitleText, serializeDocument, type SerializedBlock } from "@docsync/shared";
 
 /** A run of visible text inserted by one Yjs client. */
 export interface ClientSpan {

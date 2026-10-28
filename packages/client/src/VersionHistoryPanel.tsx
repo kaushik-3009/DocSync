@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SerializedBlockWithDelta } from "@collab/shared";
+import type { SerializedBlockWithDelta } from "@docsync/shared";
 import { fetchVersions, fetchVersionAt, restoreVersion, type VersionSummary } from "./api.js";
 import { formatRelativeTime } from "./relativeTime.js";
 import { renderDelta } from "./renderDelta.js";

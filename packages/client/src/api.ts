@@ -1,4 +1,4 @@
-import type { SerializedBlock, SerializedBlockWithDelta } from "@collab/shared";
+import type { SerializedBlock, SerializedBlockWithDelta } from "@docsync/shared";
 import { getFreshToken, getStoredToken, refreshSession, type Session } from "./auth.js";
 import { HTTP_BASE, WS_URL, wsProtocols } from "./config.js";
 

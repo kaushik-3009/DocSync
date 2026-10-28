@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 
 /** Plain lookup with no side effects. Document creation is the only operation
  * that establishes ownership; reads and WebSocket connections never grant it. */

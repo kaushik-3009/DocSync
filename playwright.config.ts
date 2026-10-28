@@ -47,7 +47,7 @@ export default defineConfig({
       },
     },
     {
-      command: `pnpm --filter @collab/client exec vite --port ${CLIENT_PORT} --strictPort`,
+      command: `pnpm --filter @docsync/client exec vite --port ${CLIENT_PORT} --strictPort`,
       url: `http://localhost:${CLIENT_PORT}`,
       reuseExistingServer: false,
       timeout: 60_000,

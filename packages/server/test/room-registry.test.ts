@@ -4,7 +4,7 @@ import { RoomRegistry } from "../src/room-registry.js";
 import { PageStore } from "../src/persistence/page-store.js";
 import { createTestPool } from "./helpers/test-db.js";
 import type { RoomBroadcaster } from "../src/redis/broadcaster.js";
-import { createBlock, serializeDocument } from "@collab/shared";
+import { createBlock, serializeDocument } from "@docsync/shared";
 
 describe("RoomRegistry", () => {
   it("creates a room lazily and reuses it for the same pageId", async () => {

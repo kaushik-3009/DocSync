@@ -17,7 +17,6 @@
   "chaosSummaries": [
     "artifacts/chaos/test-persistent-gateway-2/summary.json",
     "artifacts/chaos/test-persistent-redis/summary.json",
-    "artifacts/chaos/test-persistent-postgres-2/summary.json",
     "artifacts/chaos/worker-accounted-3/summary.json"
   ],
   "backup": {

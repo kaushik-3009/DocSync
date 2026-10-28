@@ -11,7 +11,7 @@ import {
   type SerializedBlock,
   type SerializedComment,
   type PresenceState,
-} from "@collab/shared";
+} from "@docsync/shared";
 import { getLocalUser } from "./localUser.js";
 import { clearToken, getStoredToken, refreshSession, type AuthUser } from "./auth.js";
 import { WS_URL, wsProtocols } from "./config.js";
@@ -65,10 +65,10 @@ export interface YDocHandle {
  * client-side seam that talks to the network — swapping transports later
  * touches only this hook.
  *
- * Presence (Phase 3): our own identity is published into y-protocols'
+ * Presence: our own identity is published into y-protocols'
  * awareness state on connect, and every other client's awareness state is
- * surfaced as `peers`. Awareness already flowed over the wire since Phase 1
- * (it's part of the y-websocket/y-protocols convention) — this hook is what
+ * surfaced as `peers`. Awareness flows over the wire as part of the
+ * y-websocket/y-protocols convention — this hook is what
  * actually puts data in it.
  */
 /**

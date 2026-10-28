@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { applyDocumentEdit, chatDocumentAssistant, type AgentOperation, type AgentPlan } from "./api.js";
-import type { SerializedBlock } from "@collab/shared";
+import type { SerializedBlock } from "@docsync/shared";
 
 interface Message {
   role: "user" | "assistant";

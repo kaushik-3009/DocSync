@@ -13,7 +13,7 @@ import {
   setBlockType,
   type BlockType,
   type CodeLanguage,
-} from "@collab/shared";
+} from "@docsync/shared";
 
 export type AgentOperation =
   | { op: "replace_text"; blockId: string; text: string }

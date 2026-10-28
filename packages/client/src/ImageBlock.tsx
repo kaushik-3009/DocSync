@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
-import { setBlockImage } from "@collab/shared";
+import { setBlockImage } from "@docsync/shared";
 import { fetchImageUrl, uploadImage } from "./api.js";
 
 /**

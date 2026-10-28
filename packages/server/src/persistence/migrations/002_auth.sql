@@ -1,7 +1,7 @@
--- Phase 5: users, per-page roles (RBAC), and an audit log.
+-- Users, per-page roles (RBAC), and an audit log.
 --
 -- IDs are app-generated TEXT (node:crypto randomUUID), not DB-generated UUID
--- columns — same portability rationale as Phase 2's base64-TEXT choice:
+-- columns — same portability rationale as the base64-TEXT choice in 001_init.sql:
 -- no dependency on a Postgres extension (pgcrypto's gen_random_uuid()) that
 -- may or may not be installed/available across environments, including
 -- pg-mem in tests.
@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS page_roles_page_idx ON page_roles (page_id);
 
 -- Append-only. Every auth-relevant event (login, page ownership bootstrap,
 -- role grants, connection accepted/rejected, rejected mutation attempts)
--- gets a row here — this is what Phase 7's alerting and any future "who did
+-- gets a row here — this is what alerting and any future "who did
 -- this" support workflow reads from.
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGSERIAL PRIMARY KEY,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SerializedBlock } from "@collab/shared";
+import type { SerializedBlock } from "@docsync/shared";
 import { flattenBlockIds } from "./blockTree.js";
 import { formatRelativeTime } from "./relativeTime.js";
 import { getRecentPages, recordPageVisit } from "./recentPages.js";

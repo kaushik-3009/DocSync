@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createTestPool } from "./helpers/test-db.js";
 import { PageStore } from "../src/persistence/page-store.js";
 import { RoomRegistry } from "../src/room-registry.js";
-import { createBlock, deleteBlock, serializeDocument, restoreBlocksFromSnapshot } from "@collab/shared";
+import { createBlock, deleteBlock, serializeDocument, restoreBlocksFromSnapshot } from "@docsync/shared";
 
 let pool: Pool;
 
@@ -28,7 +28,7 @@ describe("Room + RoomRegistry with persistence", () => {
     expect(serializeDocument(room2.doc)).toEqual(serializeDocument(room1.doc));
   });
 
-  it("runs with no PageStore (Phase 1 behavior) when none is supplied", async () => {
+  it("runs with no PageStore (in-memory only) when none is supplied", async () => {
     const registry = new RoomRegistry();
     const room = await registry.getOrCreateRoom("page-a");
     createBlock(room.doc, "b1", { type: "paragraph", text: "in-memory only" });

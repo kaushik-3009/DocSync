@@ -8,7 +8,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { yCollab } from "y-codemirror.next";
-import type { CodeLanguage } from "@collab/shared";
+import type { CodeLanguage } from "@docsync/shared";
 import { useThemeValue } from "./theme.js";
 
 /** CodeMirror owns its own rendering surface (not CSS variables), so a
