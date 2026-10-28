@@ -1924,3 +1924,78 @@ input::placeholder {
   cursor: pointer;
   text-align: left;
 }
+
+/* Public links */
+.public-links {
+  border-top: 1px solid var(--color-border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.public-links-hint {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.public-link-fresh {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.public-link-fresh input {
+  flex: 1;
+  min-width: 0;
+}
+
+.public-link-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.public-link-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+}
+
+/* Public read-only page */
+.public-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 1rem 4rem;
+  line-height: 1.6;
+}
+
+.public-page-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.public-page-children {
+  margin-left: 1.5rem;
+}
+
+.public-page-code {
+  background: var(--color-border);
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.public-page-todo {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.public-page-muted {
+  color: var(--color-text-muted);
+}

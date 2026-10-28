@@ -243,4 +243,52 @@ describe("HTTP API", () => {
       expect.arrayContaining(["/auth/login", "/documents", "/pages/{pageId}/versions/{seq}/restore"])
     );
   });
+
+  it("serves a read-only public snapshot through an owner-managed link", async () => {
+    const owner = await register("publisher@example.com");
+    const editor = await register("helper@example.com");
+    const pageId = await createDocument(owner.token, "Launch notes");
+    const { rows } = await pool.query<{ id: string }>("SELECT id FROM users WHERE email = $1", ["helper@example.com"]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [pageId, rows[0]!.id]);
+    const doc = new Y.Doc();
+    createBlock(doc, "b1", { type: "paragraph", text: "Shipping Friday." });
+    await pageStore.recordUpdate(pageId, Y.encodeStateAsUpdate(doc), () => Y.encodeStateAsUpdate(doc));
+
+    const forbidden = await app.inject({ method: "POST", url: `/pages/${pageId}/share-links`, headers: auth(editor.token), payload: {} });
+    expect(forbidden.statusCode).toBe(403);
+    const created = await app.inject({ method: "POST", url: `/pages/${pageId}/share-links`, headers: auth(owner.token), payload: {} });
+    expect(created.statusCode).toBe(201);
+    const { token, link } = created.json() as { token: string; link: { id: string } };
+
+    const snapshot = await app.inject(`/public/${token}`);
+    expect(snapshot.statusCode).toBe(200);
+    expect(snapshot.headers["cache-control"]).toBe("no-store");
+    expect(snapshot.headers["x-robots-tag"]).toContain("noindex");
+    expect((snapshot.json() as { blocks: Array<{ text: string }> }).blocks.map((block) => block.text)).toEqual(["Shipping Friday."]);
+
+    const [id] = token.split(".");
+    expect((await app.inject(`/public/${id}.wrong-secret-value`)).statusCode).toBe(404);
+
+    expect((await app.inject({ url: `/pages/${pageId}/share-links`, headers: auth(owner.token) })).json()).toMatchObject({
+      links: [{ id: link.id }],
+    });
+    const revoked = await app.inject({ method: "DELETE", url: `/pages/${pageId}/share-links/${link.id}`, headers: auth(owner.token) });
+    expect(revoked.json()).toEqual({ revoked: true });
+    expect((await app.inject(`/public/${token}`)).statusCode).toBe(404);
+  });
+
+  it("stops serving an expired public link", async () => {
+    const owner = await register("expiry@example.com");
+    const pageId = await createDocument(owner.token);
+    const created = await app.inject({
+      method: "POST",
+      url: `/pages/${pageId}/share-links`,
+      headers: auth(owner.token),
+      payload: { expiresInDays: 1 },
+    });
+    const { token, link } = created.json() as { token: string; link: { id: string } };
+    expect((await app.inject(`/public/${token}`)).statusCode).toBe(200);
+    await pool.query("UPDATE share_links SET expires_at = $1 WHERE id = $2", [new Date(Date.now() - 1_000), link.id]);
+    expect((await app.inject(`/public/${token}`)).statusCode).toBe(404);
+  });
 });

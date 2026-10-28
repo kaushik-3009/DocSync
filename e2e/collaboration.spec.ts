@@ -160,3 +160,31 @@ test("meaning search ranks the page that is about the query first", async ({ bro
   await expect(page.locator(".search-result-item").first()).toContainText("Incident runbook");
   await expect(page.locator(".search-result-item").nth(1)).toContainText("Team offsite");
 });
+
+test("an owner can publish a read-only link and revoke it", async ({ browser }) => {
+  const owner = await registerUser("publisher");
+  const pageId = await createDocument(owner, "Release notes");
+  const ownerPage = await openPage(await signedInContext(browser, owner), pageId);
+  await ownerPage.locator(".doc-title-field").click();
+  await ownerPage.keyboard.type("Release notes");
+  await ownerPage.locator("[data-placeholder=\"Type '/' for commands\"]").first().click();
+  await ownerPage.keyboard.type("Version 2 ships on Friday.");
+  await expect(ownerPage.getByText("Synced")).toBeVisible();
+
+  await ownerPage.getByRole("button", { name: "Share" }).click();
+  await ownerPage.getByRole("button", { name: "Create link" }).click();
+  const url = await ownerPage.getByLabel("New public link").inputValue();
+  expect(url).toContain("?share=");
+
+  // A signed-out visitor sees the page, read-only.
+  const visitor = await (await browser.newContext()).newPage();
+  await visitor.goto(url);
+  await expect(visitor.getByRole("heading", { level: 1 })).toHaveText("Release notes");
+  await expect(visitor.getByText("Version 2 ships on Friday.")).toBeVisible();
+  await expect(visitor.locator("[contenteditable]")).toHaveCount(0);
+
+  await ownerPage.getByRole("button", { name: "Revoke" }).click();
+  await expect(ownerPage.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+  await visitor.reload();
+  await expect(visitor.getByRole("alert")).toContainText("invalid or has been revoked");
+});

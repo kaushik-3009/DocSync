@@ -325,3 +325,35 @@ export async function askWorkspace(
     }
   }
 }
+
+export interface ShareLinkSummary {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export function listShareLinks(pageId: string): Promise<{ links: ShareLinkSummary[] }> {
+  return apiFetch(`/pages/${pageId}/share-links`);
+}
+
+export function createShareLink(pageId: string): Promise<{ link: ShareLinkSummary; token: string }> {
+  return postJson(`/pages/${pageId}/share-links`, {});
+}
+
+export function revokeShareLink(pageId: string, linkId: string): Promise<{ revoked: boolean }> {
+  return apiFetch(`/pages/${pageId}/share-links/${linkId}`, { method: "DELETE" });
+}
+
+/** Unauthenticated: anyone holding the link may read the snapshot. */
+export async function fetchPublicPage(token: string): Promise<{ title: string; blocks: SerializedBlockWithDelta[] }> {
+  const res = await fetch(`${httpBase()}/public/${encodeURIComponent(token)}`);
+  if (!res.ok) throw new ApiError(res.status === 404 ? "This link is invalid or has been revoked." : `HTTP ${res.status}`);
+  return res.json();
+}
+
+export function publicPageUrl(token: string): string {
+  const url = new URL(window.location.href);
+  url.search = `?share=${encodeURIComponent(token)}`;
+  url.hash = "";
+  return url.toString();
+}

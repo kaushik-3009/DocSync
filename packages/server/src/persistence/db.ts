@@ -20,6 +20,7 @@ const MIGRATIONS = [
   "010_refresh_tokens.sql",
   "011_export_object_storage.sql",
   "012_authorship.sql",
+  "013_share_links.sql",
 ];
 
 /** Features whose schema depends on a Postgres extension. Each file runs as
