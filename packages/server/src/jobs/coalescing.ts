@@ -22,9 +22,10 @@ export function dirtyKey(queue: string, pageId: string): string {
   return `jobs:dirty:${queue}:${pageId}`;
 }
 
-export async function markDirty(redis: Redis, queue: Queue, pageId: string, data: Record<string, unknown>): Promise<void> {
+/** `delayMs` debounces: edits within the window share one run. */
+export async function markDirty(redis: Redis, queue: Queue, pageId: string, data: Record<string, unknown>, delayMs = 0): Promise<void> {
   await redis.set(dirtyKey(queue.name, pageId), "1");
-  await queue.add(queue.name, { pageId, ...data }, { jobId: pageId, removeOnComplete: true, removeOnFail: 20 });
+  await queue.add(queue.name, { pageId, ...data }, { jobId: pageId, removeOnComplete: true, removeOnFail: 20, delay: delayMs });
 }
 
 /** Runs `process` until the page stops changing underneath it (bounded so a
@@ -44,8 +45,8 @@ export async function processUntilClean(
   }
 }
 
-export async function requeueIfDirty(redis: Redis, queue: Queue, pageId: string): Promise<void> {
+export async function requeueIfDirty(redis: Redis, queue: Queue, pageId: string, delayMs = 0): Promise<void> {
   if (await redis.exists(dirtyKey(queue.name, pageId))) {
-    await queue.add(queue.name, { pageId }, { jobId: pageId, removeOnComplete: true, removeOnFail: 20 });
+    await queue.add(queue.name, { pageId }, { jobId: pageId, removeOnComplete: true, removeOnFail: 20, delay: delayMs });
   }
 }

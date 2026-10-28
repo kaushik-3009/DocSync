@@ -357,3 +357,26 @@ export function publicPageUrl(token: string): string {
   url.hash = "";
   return url.toString();
 }
+
+export interface WebhookSummary {
+  id: string;
+  url: string;
+  createdAt: string;
+  lastDelivery: { event: string; status: string; responseStatus: number | null; at: string } | null;
+}
+
+export function listWebhooks(pageId: string): Promise<{ webhooks: WebhookSummary[] }> {
+  return apiFetch(`/pages/${pageId}/webhooks`);
+}
+
+export function createWebhook(pageId: string, url: string): Promise<{ webhook: WebhookSummary; secret: string }> {
+  return postJson(`/pages/${pageId}/webhooks`, { url });
+}
+
+export function deleteWebhook(pageId: string, webhookId: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/pages/${pageId}/webhooks/${webhookId}`, { method: "DELETE" });
+}
+
+export function pingWebhook(pageId: string, webhookId: string): Promise<{ deliveryId: string }> {
+  return postJson(`/pages/${pageId}/webhooks/${webhookId}/ping`, {});
+}

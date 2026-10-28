@@ -40,6 +40,9 @@ export default defineConfig({
         WS_CONNECT_RATE_LIMIT_POINTS: "10000",
         REGISTER_RATE_LIMIT_POINTS: "10000",
         LOGIN_RATE_LIMIT_POINTS: "10000",
+        // Lets webhooks reach the test's local receiver; refused in production.
+        WEBHOOKS_ALLOW_LOCAL: "true",
+        WEBHOOK_DEBOUNCE_MS: "300",
         LOG_LEVEL: "warn",
       },
     },

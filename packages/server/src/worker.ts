@@ -4,6 +4,9 @@ import { logger } from "./logger.js";
 import { runMigrations } from "./persistence/db.js";
 import { PageStore } from "./persistence/page-store.js";
 import { startWorkers } from "./jobs/workers.js";
+import { JobQueues } from "./jobs/queues.js";
+import { createSafeAgent } from "./webhooks/safe-fetch.js";
+import { loadWebhookPolicy } from "./webhooks/policy.js";
 import { createExportStorage } from "./exports/storage.js";
 import { SemanticIndex } from "./search/semantic.js";
 import { createEmbedder, loadEmbedderConfig } from "./ai/embeddings.js";
@@ -18,6 +21,8 @@ const features = await runMigrations(pool);
 const pageStore = new PageStore(pool);
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const workers = startWorkers(connection, {
+  jobQueues: new JobQueues(connection),
+  webhookAgent: createSafeAgent(loadWebhookPolicy(process.env)),
   pool,
   pageStore,
   exportStorage: await createExportStorage(pool),

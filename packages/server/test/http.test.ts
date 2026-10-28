@@ -40,6 +40,7 @@ async function build(overrides: { httpPoints?: number } = {}) {
     pingRedis: async () => true,
     notifyUser: async () => undefined,
     maxBodyBytes: 65_536,
+    webhookPolicy: { allowPrivateNetworks: false, allowInsecure: false },
   });
 }
 
@@ -290,5 +291,44 @@ describe("HTTP API", () => {
     expect((await app.inject(`/public/${token}`)).statusCode).toBe(200);
     await pool.query("UPDATE share_links SET expires_at = $1 WHERE id = $2", [new Date(Date.now() - 1_000), link.id]);
     expect((await app.inject(`/public/${token}`)).statusCode).toBe(404);
+  });
+
+  it("lets only owners register https webhooks and never lists their secrets", async () => {
+    const owner = await register("hooks@example.com");
+    const other = await register("not-owner@example.com");
+    const pageId = await createDocument(owner.token);
+    const url = `/pages/${pageId}/webhooks`;
+
+    expect(
+      (await app.inject({ method: "POST", url, headers: auth(other.token), payload: { url: "https://hooks.example.com/x" } })).statusCode
+    ).toBe(403);
+    const insecure = await app.inject({ method: "POST", url, headers: auth(owner.token), payload: { url: "http://hooks.example.com/x" } });
+    expect(insecure.statusCode).toBe(400);
+    expect(insecure.json()).toMatchObject({ error: "webhook URL must use https" });
+    const internal = await app.inject({
+      method: "POST",
+      url,
+      headers: auth(owner.token),
+      payload: { url: "https://169.254.169.254/latest" },
+    });
+    expect(internal.statusCode).toBe(400);
+
+    const created = await app.inject({
+      method: "POST",
+      url,
+      headers: auth(owner.token),
+      payload: { url: "https://hooks.example.com/docsync" },
+    });
+    expect(created.statusCode).toBe(201);
+    const { secret, webhook } = created.json() as { secret: string; webhook: { id: string } };
+    expect(secret).toMatch(/^whsec_/);
+    const listed = await app.inject({ url, headers: auth(owner.token) });
+    expect(listed.json()).toMatchObject({ webhooks: [{ id: webhook.id, url: "https://hooks.example.com/docsync" }] });
+    expect(listed.body).not.toContain(secret);
+
+    expect((await app.inject({ method: "DELETE", url: `${url}/${webhook.id}`, headers: auth(owner.token) })).json()).toEqual({
+      deleted: true,
+    });
+    expect((await app.inject({ url, headers: auth(owner.token) })).json()).toEqual({ webhooks: [] });
   });
 });

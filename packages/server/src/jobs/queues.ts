@@ -3,10 +3,15 @@ import type Redis from "ioredis";
 import { tracer } from "../tracing/tracer.js";
 import { currentTraceparent } from "../tracing/propagation.js";
 import { markDirty } from "./coalescing.js";
+import type { DeliveryJob } from "../webhooks/delivery.js";
 
 export const SEARCH_INDEX_QUEUE = "search-index";
 export const PREVIEW_QUEUE = "preview";
 export const PDF_EXPORT_QUEUE = "pdf-export";
+export const WEBHOOK_EVENTS_QUEUE = "webhook-events";
+export const WEBHOOK_DELIVERY_QUEUE = "webhook-delivery";
+/** Edits within this window produce a single page.updated event. */
+export const WEBHOOK_DEBOUNCE_MS = Number(process.env.WEBHOOK_DEBOUNCE_MS ?? 3_000);
 
 // `traceparent` carries the enqueueing request's trace across the Redis/BullMQ
 // boundary — see tracing/propagation.ts. Optional because a job enqueued with
@@ -36,11 +41,15 @@ export class JobQueues {
   private readonly searchIndex: Queue<SearchIndexJobData>;
   private readonly preview: Queue<PreviewJobData>;
   private readonly pdfExport: Queue<PdfExportJobData>;
+  private readonly webhookEvents: Queue<{ pageId: string }>;
+  private readonly webhookDeliveries: Queue<DeliveryJob>;
 
   constructor(private readonly connection: Redis) {
     this.searchIndex = new Queue(SEARCH_INDEX_QUEUE, { connection });
     this.preview = new Queue(PREVIEW_QUEUE, { connection });
     this.pdfExport = new Queue(PDF_EXPORT_QUEUE, { connection });
+    this.webhookEvents = new Queue(WEBHOOK_EVENTS_QUEUE, { connection });
+    this.webhookDeliveries = new Queue(WEBHOOK_DELIVERY_QUEUE, { connection });
   }
 
   /** Coalesced per page (see coalescing.ts): bursts of edits collapse into
@@ -62,6 +71,23 @@ export class JobQueues {
       } finally {
         span.end();
       }
+    });
+  }
+
+  /** Debounced per page: a burst of edits becomes one page.updated event. */
+  async enqueueWebhookEvent(pageId: string): Promise<void> {
+    await markDirty(this.connection, this.webhookEvents, pageId, {}, WEBHOOK_DEBOUNCE_MS);
+  }
+
+  /** One delivery to one endpoint, retried with exponential backoff
+   *  (5 s, 10 s, 20 s, ... over six attempts). */
+  async enqueueWebhookDelivery(job: DeliveryJob): Promise<void> {
+    await this.webhookDeliveries.add(job.event, job, {
+      jobId: job.deliveryId,
+      attempts: 6,
+      backoff: { type: "exponential", delay: 5_000 },
+      removeOnComplete: true,
+      removeOnFail: 100,
     });
   }
 
@@ -103,6 +129,12 @@ export class JobQueues {
   }
 
   async close(): Promise<void> {
-    await Promise.all([this.searchIndex.close(), this.preview.close(), this.pdfExport.close()]);
+    await Promise.all([
+      this.searchIndex.close(),
+      this.preview.close(),
+      this.pdfExport.close(),
+      this.webhookEvents.close(),
+      this.webhookDeliveries.close(),
+    ]);
   }
 }

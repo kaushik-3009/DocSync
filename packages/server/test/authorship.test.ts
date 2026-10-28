@@ -101,6 +101,7 @@ describe("authorship endpoint", () => {
       pingRedis: null,
       notifyUser: async () => undefined,
       maxBodyBytes: 65_536,
+      webhookPolicy: { allowPrivateNetworks: false, allowInsecure: false },
     });
     const response = await app.inject({
       url: `/pages/${pageId}/authorship`,

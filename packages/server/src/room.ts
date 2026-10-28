@@ -804,6 +804,9 @@ export class Room {
     this.jobQueues?.enqueuePreview(this.pageId).catch((err) => {
       this.log.error({ event: "enqueue_preview_failed", err }, "failed to enqueue preview job");
     });
+    this.jobQueues?.enqueueWebhookEvent(this.pageId).catch((err) => {
+      this.log.error({ event: "enqueue_webhook_event_failed", err }, "failed to enqueue webhook event");
+    });
     this.scanForNewMentions();
   }
 

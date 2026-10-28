@@ -23,6 +23,8 @@ import {
 import { loadRuntimeConfig } from "./runtime-config.js";
 import { NotificationGateway } from "./notifications/gateway.js";
 import { buildApp } from "./http/app.js";
+import { createSafeAgent } from "./webhooks/safe-fetch.js";
+import { loadWebhookPolicy } from "./webhooks/policy.js";
 import { AuthorshipStore } from "./authorship/store.js";
 import { SemanticIndex } from "./search/semantic.js";
 import { createEmbedder, loadEmbedderConfig } from "./ai/embeddings.js";
@@ -35,6 +37,7 @@ import { createEmbedder, loadEmbedderConfig } from "./ai/embeddings.js";
  */
 
 const config = loadRuntimeConfig(process.env);
+const webhookPolicy = loadWebhookPolicy(process.env);
 const GATEWAY_ID = process.env.GATEWAY_ID?.trim() || `gateway-${process.pid}`;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = Number(process.env.SHUTDOWN_DRAIN_TIMEOUT_MS ?? 5_000);
 
@@ -85,7 +88,14 @@ if (config.redisUrl && pool && pageStore && exportStorage) {
   jobsConnection = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
   jobQueues = new JobQueues(jobsConnection);
   if (process.env.RUN_WORKERS !== "false") {
-    stopWorkers = startWorkers(jobsConnection, { pool, pageStore, exportStorage, semanticIndex }).close;
+    stopWorkers = startWorkers(jobsConnection, {
+      pool,
+      pageStore,
+      exportStorage,
+      semanticIndex,
+      jobQueues,
+      webhookAgent: createSafeAgent(webhookPolicy),
+    }).close;
   }
   logger.info({ event: "jobs_enabled", inProcessWorkers: Boolean(stopWorkers) }, "background job queues enabled");
 } else {
@@ -137,6 +147,7 @@ const app = await buildApp({
   },
   pingRedis: broadcasterPub ? () => broadcasterPub!.ping().then(() => true) : null,
   notifyUser: async (userId) => notificationGateway?.publish(userId),
+  webhookPolicy,
   maxBodyBytes: Number(process.env.MAX_HTTP_BODY_BYTES ?? 65_536),
 });
 

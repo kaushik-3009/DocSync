@@ -1,4 +1,7 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test } from "@playwright/test";
+import { verifySignature } from "../packages/server/src/webhooks/signing.js";
 import { controllableNetwork, createDocument, openPage, registerUser, share, signedInContext } from "./helpers.js";
 
 test("a new user can sign up through the UI and create a page", async ({ page }) => {
@@ -187,4 +190,40 @@ test("an owner can publish a read-only link and revoke it", async ({ browser }) 
   await expect(ownerPage.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   await visitor.reload();
   await expect(visitor.getByRole("alert")).toContainText("invalid or has been revoked");
+});
+
+test("edits trigger a signed webhook the receiver can verify", async ({ browser }) => {
+  const deliveries: Array<{ body: string; signature: string }> = [];
+  const receiver = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      deliveries.push({ body, signature: String(request.headers["x-docsync-signature"]) });
+      response.writeHead(204).end();
+    });
+  });
+  await new Promise<void>((resolve) => receiver.listen(0, "127.0.0.1", resolve));
+  const port = (receiver.address() as AddressInfo).port;
+
+  try {
+    const owner = await registerUser("integrator");
+    const pageId = await createDocument(owner, "Changelog");
+    const page = await openPage(await signedInContext(browser, owner), pageId);
+    await page.getByRole("button", { name: "Share" }).click();
+    await page.getByLabel("Webhooks").getByRole("textbox").fill(`http://127.0.0.1:${port}/hook`);
+    await page.getByRole("button", { name: "Add" }).click();
+    const secret = await page.getByLabel("Webhook signing secret").inputValue();
+    await page.keyboard.press("Escape");
+
+    await page.locator(".doc-title-field").click();
+    await page.keyboard.type("Changelog v2");
+    await expect.poll(() => deliveries.length, { timeout: 15_000 }).toBeGreaterThan(0);
+
+    const event = JSON.parse(deliveries[0]!.body) as { event: string; pageId: string; seq: number };
+    expect(event).toMatchObject({ event: "page.updated", pageId });
+    expect(event.seq).toBeGreaterThan(0);
+    expect(verifySignature(secret, deliveries[0]!.body, deliveries[0]!.signature)).toBe(true);
+  } finally {
+    await new Promise((resolve) => receiver.close(resolve));
+  }
 });

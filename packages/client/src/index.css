@@ -1999,3 +1999,10 @@ input::placeholder {
 .public-page-muted {
   color: var(--color-text-muted);
 }
+
+.webhook-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

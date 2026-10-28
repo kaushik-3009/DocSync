@@ -4,7 +4,19 @@ import { Queue, Worker } from "bullmq";
 import type Redis from "ioredis";
 import type { Pool } from "pg";
 import type { PageStore } from "../persistence/page-store.js";
-import { SEARCH_INDEX_QUEUE, PREVIEW_QUEUE, PDF_EXPORT_QUEUE } from "./queues.js";
+import { randomUUID } from "node:crypto";
+import type { Agent } from "undici";
+import {
+  SEARCH_INDEX_QUEUE,
+  PREVIEW_QUEUE,
+  PDF_EXPORT_QUEUE,
+  WEBHOOK_EVENTS_QUEUE,
+  WEBHOOK_DELIVERY_QUEUE,
+  WEBHOOK_DEBOUNCE_MS,
+  type JobQueues,
+} from "./queues.js";
+import { deliverWebhook, type DeliveryJob } from "../webhooks/delivery.js";
+import { webhookTargets } from "../webhooks/store.js";
 import type { SearchIndexJobData, PreviewJobData, PdfExportJobData } from "./queues.js";
 import { processUntilClean, requeueIfDirty } from "./coalescing.js";
 import { processSearchIndexJob, processPreviewJob, processPdfExportJob } from "./processors.js";
@@ -42,6 +54,10 @@ export function traced<T>(name: string, traceparent: string | undefined, fn: () 
  */
 export interface WorkerDependencies {
   pool: Pool;
+  /** Fans page events out into per-webhook deliveries. */
+  jobQueues: JobQueues;
+  /** HTTP agent that refuses private destinations (see safe-fetch.ts). */
+  webhookAgent: Agent;
   pageStore: PageStore;
   exportStorage: ExportStorage;
   /** Null when pgvector is unavailable; keyword indexing still runs. */
@@ -50,7 +66,7 @@ export interface WorkerDependencies {
 
 export function startWorkers(
   connection: Redis,
-  { pool, pageStore, exportStorage, semanticIndex }: WorkerDependencies
+  { pool, pageStore, exportStorage, semanticIndex, jobQueues, webhookAgent }: WorkerDependencies
 ): { close(): Promise<void> } {
   const searchIndexWorker = new Worker<SearchIndexJobData>(
     SEARCH_INDEX_QUEUE,
@@ -71,12 +87,36 @@ export function startWorkers(
     { connection }
   );
 
+  const webhookEventsWorker = new Worker<{ pageId: string }>(
+    WEBHOOK_EVENTS_QUEUE,
+    async (job) =>
+      processUntilClean(connection, WEBHOOK_EVENTS_QUEUE, job.data.pageId, async () => {
+        const targets = await webhookTargets(pool, job.data.pageId);
+        if (targets.length === 0) return;
+        const payload = { pageId: job.data.pageId, seq: await pageStore.currentSeq(job.data.pageId), occurredAt: new Date().toISOString() };
+        for (const target of targets) {
+          await jobQueues.enqueueWebhookDelivery({ deliveryId: randomUUID(), webhookId: target.id, event: "page.updated", payload });
+        }
+      }),
+    { connection }
+  );
+  const webhookDeliveryWorker = new Worker<DeliveryJob>(
+    WEBHOOK_DELIVERY_QUEUE,
+    async (job) => deliverWebhook({ pool, agent: webhookAgent }, job.data, job.attemptsMade + 1),
+    { connection, concurrency: 8 }
+  );
+
   // Close the last gap: an edit that marked the page dirty after the
   // processor's final check, while the job was still active.
   const requeueQueues = {
     search: new Queue(SEARCH_INDEX_QUEUE, { connection }),
     preview: new Queue(PREVIEW_QUEUE, { connection }),
+    webhooks: new Queue(WEBHOOK_EVENTS_QUEUE, { connection }),
   };
+  webhookEventsWorker.on(
+    "completed",
+    (job) => void requeueIfDirty(connection, requeueQueues.webhooks, job.data.pageId, WEBHOOK_DEBOUNCE_MS).catch(() => undefined)
+  );
   searchIndexWorker.on("completed", (job) => void requeueIfDirty(connection, requeueQueues.search, job.data.pageId).catch(() => undefined));
   previewWorker.on("completed", (job) => void requeueIfDirty(connection, requeueQueues.preview, job.data.pageId).catch(() => undefined));
   const pdfExportWorker = new Worker<PdfExportJobData>(
@@ -90,6 +130,8 @@ export function startWorkers(
     ["search-index", searchIndexWorker],
     ["preview", previewWorker],
     ["pdf-export", pdfExportWorker],
+    ["webhook-events", webhookEventsWorker],
+    ["webhook-delivery", webhookDeliveryWorker],
   ] as const) {
     worker.on("completed", () => jobsCompletedTotal.inc({ queue: name }));
     worker.on("failed", (job, err) => {
@@ -100,8 +142,14 @@ export function startWorkers(
 
   return {
     async close() {
-      await Promise.all([searchIndexWorker.close(), previewWorker.close(), pdfExportWorker.close()]);
-      await Promise.all([requeueQueues.search.close(), requeueQueues.preview.close()]);
+      await Promise.all([
+        searchIndexWorker.close(),
+        previewWorker.close(),
+        pdfExportWorker.close(),
+        webhookEventsWorker.close(),
+        webhookDeliveryWorker.close(),
+      ]);
+      await Promise.all(Object.values(requeueQueues).map((queue) => queue.close()));
     },
   };
 }

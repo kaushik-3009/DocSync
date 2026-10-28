@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { fetchPageRoles, grantPageRole, type PageRole } from "./api.js";
 import type { AuthUser } from "./auth.js";
 import { PublicLinkSection } from "./PublicLinkSection.js";
+import { WebhookSection } from "./WebhookSection.js";
 
 type InviteRole = "editor" | "viewer";
 
@@ -173,6 +174,7 @@ export function SharePanel({
               )}
             </form>
             {isOwner && <PublicLinkSection pageId={pageId} />}
+            {isOwner && <WebhookSection pageId={pageId} />}
           </>
         )}
       </section>

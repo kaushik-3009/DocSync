@@ -8,6 +8,7 @@ import type { MentionsStore } from "../comments/mentions-store.js";
 import type { ExportStorage } from "../exports/storage.js";
 import type { AuthorshipStore } from "../authorship/store.js";
 import type { SemanticIndex } from "../search/semantic.js";
+import type { WebhookPolicy } from "../webhooks/policy.js";
 
 /**
  * Everything the HTTP app needs, injected so tests can build the app against
@@ -39,4 +40,5 @@ export interface AppDeps {
   /** Pushes an "invitations changed" signal to a user's open notification sockets. */
   notifyUser: (userId: string) => Promise<void>;
   maxBodyBytes: number;
+  webhookPolicy: WebhookPolicy;
 }
