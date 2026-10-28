@@ -81,7 +81,12 @@ describe("authorship endpoint", () => {
     await vi.waitFor(async () => expect((await authorship.authorsFor(pageId)).size).toBe(2));
 
     const app = await buildApp({
-      config: loadRuntimeConfig({ JWT_SECRET, DATABASE_URL: "postgres://unused", REDIS_URL: "redis://unused", ALLOWED_ORIGINS: "http://localhost" }),
+      config: loadRuntimeConfig({
+        JWT_SECRET,
+        DATABASE_URL: "postgres://unused",
+        REDIS_URL: "redis://unused",
+        ALLOWED_ORIGINS: "http://localhost",
+      }),
       gatewayId: "test",
       pool,
       pageStore,
