@@ -1,26 +1,29 @@
 import type { SerializedBlock, SerializedBlockWithDelta } from "@collab/shared";
-import { getStoredToken } from "./auth.js";
+import { getFreshToken, getStoredToken, refreshSession, type Session } from "./auth.js";
+import { HTTP_BASE, WS_URL, wsProtocols } from "./config.js";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:1234/ws";
-
-/** The collab server's plain-HTTP routes (versions, restore, roles, ...) live
- *  on the same host/port as the WebSocket gateway — just derive one URL from
- *  the other rather than requiring a second env var kept in sync with it. */
 function httpBase(): string {
-  return WS_URL.replace(/^ws/, "http").replace(/\/ws\/?$/, "");
+  return HTTP_BASE;
 }
 
 class ApiError extends Error {}
 
+/** Authenticated fetch with one transparent retry after refreshing an
+ *  access token the server rejected (e.g. expired while the tab slept). */
+async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const send = (token: string | null) =>
+    fetch(`${httpBase()}${path}`, {
+      ...init,
+      headers: { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  const res = await send(await getFreshToken());
+  if (res.status !== 401 || !getStoredToken()) return res;
+  const refreshed = await refreshSession();
+  return refreshed ? send(refreshed) : res;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getStoredToken();
-  const res = await fetch(`${httpBase()}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const res = await authorizedFetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { error?: string });
     throw new ApiError(body.error ?? `${path} failed with HTTP ${res.status}`);
@@ -36,14 +39,11 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-/** Neither call attaches a stale Authorization header on purpose — you're
- *  acquiring a token, not using one — but `apiFetch` doing so anyway is
- *  harmless since these two routes don't check auth. */
-export function registerUser(email: string, password: string): Promise<{ token: string }> {
+export function registerUser(email: string, password: string): Promise<Session> {
   return postJson("/auth/register", { email, password });
 }
 
-export function loginUser(email: string, password: string): Promise<{ token: string }> {
+export function loginUser(email: string, password: string): Promise<Session> {
   return postJson("/auth/login", { email, password });
 }
 
@@ -156,7 +156,7 @@ export function subscribeToNotificationChanges(onChange: () => void): () => void
     const token = getStoredToken();
     if (stopped || !token) return;
     const endpoint = WS_URL.replace(/\/ws\/?$/, "/notifications");
-    socket = new WebSocket(`${endpoint}?token=${encodeURIComponent(token)}`);
+    socket = new WebSocket(endpoint, wsProtocols(token));
     socket.onmessage = () => onChange();
     socket.onclose = (event) => {
       socket = null;
@@ -240,11 +240,16 @@ export function getExportStatus(pageId: string, jobId: string): Promise<{ state:
 /** Not JSON like every other route here — the download is a raw PDF body, so
  *  this bypasses `apiFetch` to read a Blob instead, but still attaches the
  *  same auth header. */
-export async function fetchExportBlob(exportId: string): Promise<Blob> {
-  const token = getStoredToken();
-  const res = await fetch(`${httpBase()}/exports/${exportId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+/** Resolves an export to something an `<a download>` can open: a short-lived
+ *  presigned object-storage URL when the server stores exports in S3, or an
+ *  object URL over the bytes otherwise (call `release` when done). */
+export async function fetchExportDownload(exportId: string): Promise<{ url: string; release: () => void }> {
+  const res = await authorizedFetch(`/exports/${exportId}`, { headers: { Accept: "application/json, application/pdf" } });
   if (!res.ok) throw new ApiError(`export download failed with HTTP ${res.status}`);
-  return res.blob();
+  if (res.headers.get("content-type")?.includes("application/json")) {
+    const { downloadUrl } = (await res.json()) as { downloadUrl: string };
+    return { url: downloadUrl, release: () => undefined };
+  }
+  const url = URL.createObjectURL(await res.blob());
+  return { url, release: () => URL.revokeObjectURL(url) };
 }

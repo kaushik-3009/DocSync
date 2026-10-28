@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import type Redis from "ioredis";
 import { WebSocketServer, type WebSocket } from "ws";
-import { verifyToken } from "../auth/jwt.js";
+import { tokenFromWsProtocols, verifyToken, WS_PROTOCOL } from "../auth/jwt.js";
 import { childLogger } from "../logger.js";
 
 const CHANNEL = "collab:notifications";
@@ -10,7 +10,11 @@ const log = childLogger({ module: "notifications/gateway" });
 
 export class NotificationGateway {
   private readonly sockets = new Map<string, Set<WebSocket>>();
-  private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  private readonly wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 1024,
+    handleProtocols: (protocols) => (protocols.has(WS_PROTOCOL) ? WS_PROTOCOL : false),
+  });
 
   constructor(
     private readonly publisher: Redis,
@@ -34,7 +38,7 @@ export class NotificationGateway {
     });
 
     httpServer.on("upgrade", (request, socket, head) => {
-      const { pathname, searchParams } = new URL(request.url ?? "", "http://internal");
+      const { pathname } = new URL(request.url ?? "", "http://internal");
       if (pathname !== "/notifications") return;
       const origin = request.headers.origin;
       if (!origin || !this.allowedOrigins.includes(origin)) {
@@ -43,7 +47,7 @@ export class NotificationGateway {
         return;
       }
       this.wss.handleUpgrade(request, socket, head, (ws) => {
-        const token = searchParams.get("token");
+        const token = tokenFromWsProtocols(request.headers["sec-websocket-protocol"]);
         const payload = token ? verifyToken(token, this.jwtSecret) : null;
         if (!payload) {
           ws.close(4401, "invalid or missing token");

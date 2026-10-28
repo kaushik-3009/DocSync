@@ -1,3 +1,4 @@
+import type { ExportStorage } from "../exports/storage.js";
 import { randomUUID } from "node:crypto";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
@@ -65,7 +66,7 @@ export async function processPreviewJob(pool: Pool, pageStore: PageStore, pageId
 
 /** Renders a page's current blocks as a simple text PDF (pdfkit — pure JS, no
  *  headless-browser dependency) and stores the result, returning the export's id. */
-export async function processPdfExportJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<string> {
+export async function processPdfExportJob(storage: ExportStorage, pageStore: PageStore, pageId: string): Promise<string> {
   const doc = await pageStore.replayAt(pageId, await pageStore.currentSeq(pageId));
   const blocks = serializeDocument(doc);
 
@@ -90,11 +91,7 @@ export async function processPdfExportJob(pool: Pool, pageStore: PageStore, page
   });
 
   const id = randomUUID();
-  await pool.query("INSERT INTO exports (id, page_id, format, data) VALUES ($1, $2, 'pdf', $3)", [
-    id,
-    pageId,
-    pdfBuffer.toString("base64"),
-  ]);
+  await storage.save(id, pageId, pdfBuffer);
   log.info({ event: "pdf_export_complete", pageId, exportId: id }, "PDF export generated");
   return id;
 }

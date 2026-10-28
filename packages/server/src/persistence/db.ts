@@ -17,6 +17,8 @@ const MIGRATIONS = [
   "007_update_fingerprints.sql",
   "008_client_mutation_metadata.sql",
   "009_documents_and_invitations.sql",
+  "010_refresh_tokens.sql",
+  "011_export_object_storage.sql",
 ];
 
 /** Runs each migration file in order. Idempotent — every statement is `IF NOT EXISTS`.

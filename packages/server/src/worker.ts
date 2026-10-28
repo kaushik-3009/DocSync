@@ -4,6 +4,7 @@ import { logger } from "./logger.js";
 import { runMigrations } from "./persistence/db.js";
 import { PageStore } from "./persistence/page-store.js";
 import { startWorkers } from "./jobs/workers.js";
+import { createExportStorage } from "./exports/storage.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -14,7 +15,7 @@ pool.on("error", (err) => logger.error({ event: "worker_postgres_pool_error", er
 await runMigrations(pool);
 const pageStore = new PageStore(pool);
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
-const workers = startWorkers(connection, pool, pageStore);
+const workers = startWorkers(connection, pool, pageStore, await createExportStorage(pool));
 let shuttingDown = false;
 
 async function shutdown(): Promise<void> {

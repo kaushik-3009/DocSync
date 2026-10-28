@@ -1,84 +1,140 @@
 import { useEffect, useState } from "react";
+import { HTTP_BASE } from "./config.js";
 
-const TOKEN_KEY = "collab-auth-token";
+const SESSION_KEY = "docsync-session";
+/** Refresh this long before the access token expires. */
+const REFRESH_LEAD_MS = 60_000;
 
 export interface AuthUser {
   id: string;
   email: string;
 }
 
+export interface Session {
+  token: string;
+  refreshToken: string;
+}
+
 type AuthListener = (user: AuthUser | null) => void;
 const listeners = new Set<AuthListener>();
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
 
-/** Decodes (never verifies — that's the server's job) a JWT's payload segment
- *  just enough to read `sub`/`email` for display and to derive a stable
- *  identity. An expired token decodes fine but is treated as absent so a
- *  stale stored entry doesn't silently show as "signed in" while every
- *  request 401s. */
-function decodeTokenPayload(token: string): AuthUser | null {
+/** Decodes (never verifies — that's the server's job) a JWT's payload for
+ *  display and scheduling. */
+function decodeToken(token: string): (AuthUser & { expMs: number | null }) | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
-    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
-    const decoded = JSON.parse(json) as { sub?: string; email?: string; exp?: number };
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string; email?: string; exp?: number };
     if (!decoded.sub || !decoded.email) return null;
-    if (typeof decoded.exp === "number" && decoded.exp * 1000 < Date.now()) return null;
-    return { id: decoded.sub, email: decoded.email };
+    return { id: decoded.sub, email: decoded.email, expMs: typeof decoded.exp === "number" ? decoded.exp * 1000 : null };
   } catch {
     return null;
   }
 }
 
-/** Deliberately `sessionStorage`, not `localStorage`: this app's whole
- *  manual-testing model is "one browser tab == one simulated user" (see
- *  `localUser.ts`'s guest identity, unchanged since Phase 1) — `localStorage`
- *  is shared across every tab of the same origin, so two tabs signed into
- *  two different accounts would each overwrite the other's token, and a
- *  reload would leave both tabs showing whichever account signed in last.
- *  `sessionStorage` is per-tab by design, so each tab keeps its own signed-in
- *  session exactly the way it already keeps its own guest identity. Falls
- *  back to the pre-login-UI `?token=` URL convention (see docs/TESTING.md)
- *  so existing manual-testing links keep working. */
+/** `sessionStorage`, not `localStorage`: one tab is one signed-in user, so
+ *  two tabs can hold two accounts side by side (the manual collaboration
+ *  test setup) without overwriting each other. */
+function readSession(): Session | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The current access token, even if it is about to expire; use
+ *  `getFreshToken` before a request. */
 export function getStoredToken(): string | null {
-  // An explicit token in the current URL is a deliberate share/login handoff
-  // and must win over whatever this tab used previously. Without this order,
-  // opening a viewer link in a tab that already has an owner (or expired)
-  // session silently authenticates the socket as the old user and surfaces a
-  // misleading "Sign in again"/4403 state. Successful login below removes
-  // the URL token, so it cannot override the newly-issued session token.
-  const urlToken = new URLSearchParams(window.location.search).get("token");
-  if (urlToken) return urlToken;
-  return sessionStorage.getItem(TOKEN_KEY);
+  return readSession()?.token ?? null;
 }
 
 export function getAuthUser(): AuthUser | null {
-  const token = getStoredToken();
-  return token ? decodeTokenPayload(token) : null;
+  const session = readSession();
+  const decoded = session ? decodeToken(session.token) : null;
+  // A stale access token still identifies the user while a refresh token
+  // can renew it.
+  return decoded ? { id: decoded.id, email: decoded.email } : null;
 }
 
-export function storeToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token);
-  // Tokens are accepted in URLs for backwards-compatible manual share links,
-  // but keeping one in the address bar would make it override this fresh
-  // session on every subsequent read and unnecessarily expose it to copies,
-  // history, and referrer handling. Replace the URL without reloading.
-  const url = new URL(window.location.href);
-  if (url.searchParams.has("token")) {
-    url.searchParams.delete("token");
-    window.history.replaceState(null, "", url.toString());
-  }
-  const user = decodeTokenPayload(token);
+export function storeSession(session: Session): void {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  scheduleRefresh(session.token);
+  const user = getAuthUser();
   listeners.forEach((listener) => listener(user));
 }
 
+/** Forgets the session locally without telling the server (e.g. after it
+ *  already rejected the session). */
 export function clearToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
-  const url = new URL(window.location.href);
-  if (url.searchParams.has("token")) {
-    url.searchParams.delete("token");
-    window.history.replaceState(null, "", url.toString());
-  }
+  sessionStorage.removeItem(SESSION_KEY);
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
   listeners.forEach((listener) => listener(null));
+}
+
+/** Ends the session on the server too, so the refresh token can't be reused. */
+export async function signOut(): Promise<void> {
+  const session = readSession();
+  clearToken();
+  if (!session) return;
+  await fetch(`${HTTP_BASE}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: session.refreshToken }),
+  }).catch(() => undefined);
+}
+
+/** Exchanges the refresh token for a new pair. Single-flight: concurrent
+ *  callers share one request, which matters because refresh tokens are
+ *  single-use and a second concurrent use would look like token theft. */
+export function refreshSession(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const session = readSession();
+  if (!session) return Promise.resolve(null);
+  refreshInFlight = (async () => {
+    try {
+      const response = await fetch(`${HTTP_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: session.refreshToken }),
+      });
+      if (response.status === 401) {
+        clearToken();
+        return null;
+      }
+      if (!response.ok) return session.token; // transient: keep the current token
+      const next = (await response.json()) as Session;
+      storeSession({ token: next.token, refreshToken: next.refreshToken });
+      return next.token;
+    } catch {
+      return session.token;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** An access token valid for at least REFRESH_LEAD_MS, refreshing if needed. */
+export async function getFreshToken(): Promise<string | null> {
+  const token = getStoredToken();
+  if (!token) return null;
+  const expMs = decodeToken(token)?.expMs;
+  if (expMs && expMs - Date.now() < REFRESH_LEAD_MS) return refreshSession();
+  return token;
+}
+
+/** Keeps the stored token fresh in the background so WebSocket reconnects,
+ *  which read it synchronously, never present an expired one. */
+function scheduleRefresh(token: string): void {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  const expMs = decodeToken(token)?.expMs;
+  if (!expMs) return;
+  refreshTimer = setTimeout(() => void refreshSession(), Math.max(0, expMs - Date.now() - REFRESH_LEAD_MS));
 }
 
 export function onAuthChange(listener: AuthListener): () => void {
@@ -91,3 +147,7 @@ export function useAuthUser(): AuthUser | null {
   useEffect(() => onAuthChange(setUser), []);
   return user;
 }
+
+// Resume background refresh after a reload.
+const existing = getStoredToken();
+if (existing) scheduleRefresh(existing);

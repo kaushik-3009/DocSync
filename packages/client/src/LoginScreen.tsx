@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { registerUser, loginUser } from "./api.js";
-import { storeToken } from "./auth.js";
+import { storeSession } from "./auth.js";
 
 /**
  * Two shapes, one component: `mandatory` (server has JWT_SECRET configured —
@@ -22,8 +22,8 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
     setError(null);
     setLoading(true);
     try {
-      const { token } = mode === "signup" ? await registerUser(email, password) : await loginUser(email, password);
-      storeToken(token);
+      const session = mode === "signup" ? await registerUser(email, password) : await loginUser(email, password);
+      storeSession(session);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -39,7 +39,7 @@ import {
   fetchPageRoles,
   requestPdfExport,
   getExportStatus,
-  fetchExportBlob,
+  fetchExportDownload,
   fetchHealth,
   fetchDocuments,
   createDocument,
@@ -52,7 +52,7 @@ import {
 } from "./api.js";
 import { SharePanel } from "./SharePanel.js";
 import { useTheme } from "./theme.js";
-import { useAuthUser, clearToken } from "./auth.js";
+import { useAuthUser, signOut } from "./auth.js";
 import { LoginScreen } from "./LoginScreen.js";
 import type { WebsocketProvider } from "y-websocket";
 import { AssistantPanel } from "./AssistantPanel.js";
@@ -348,9 +348,8 @@ export function App() {
             .then((status) => {
               if (status.state === "completed" && status.exportId) {
                 clearInterval(poll);
-                return fetchExportBlob(status.exportId).then((blob) => {
-                  if (!stillCurrent()) return;
-                  const url = URL.createObjectURL(blob);
+                return fetchExportDownload(status.exportId).then(({ url, release }) => {
+                  if (!stillCurrent()) return release();
                   const a = document.createElement("a");
                   a.href = url;
                   a.download = `${exportPageId}.pdf`;
@@ -362,7 +361,7 @@ export function App() {
                   document.body.appendChild(a);
                   a.click();
                   a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+                  setTimeout(release, 1_000);
                   exportPollRef.current = null;
                   setExportState("idle");
                 });
@@ -452,7 +451,7 @@ export function App() {
             {theme === "dark" ? "☀️" : "🌙"}
           </button>
           {authUser ? (
-            <button className="toolbar-btn" onClick={clearToken} title={authUser.email}>
+            <button className="toolbar-btn" onClick={() => void signOut()} title={authUser.email}>
               Sign out
             </button>
           ) : (

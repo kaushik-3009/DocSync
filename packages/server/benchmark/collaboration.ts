@@ -10,6 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import WebSocket from "ws";
 import * as Y from "yjs";
+import { WS_PROTOCOL, wsAuthProtocol } from "../src/auth/jwt.js";
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
@@ -172,7 +173,8 @@ class YjsWireClient implements BenchmarkClient {
   constructor(
     readonly id: string,
     private readonly url: string,
-    private readonly origin: string
+    private readonly origin: string,
+    private readonly token: string
   ) {
     const mutations = this.doc.getMap<number>("benchmark-mutations");
     mutations.observe((event, transaction) => {
@@ -195,7 +197,7 @@ class YjsWireClient implements BenchmarkClient {
 
   connect(): Promise<void> {
     return new Promise((resolvePromise, reject) => {
-      const socket = new WebSocket(this.url, { origin: this.origin });
+      const socket = new WebSocket(this.url, [WS_PROTOCOL, wsAuthProtocol(this.token)], { origin: this.origin });
       this.socket = socket;
       const timeout = setTimeout(() => reject(new Error(`client ${this.id} did not complete sync`)), 10_000);
       socket.binaryType = "arraybuffer";
@@ -286,13 +288,13 @@ async function main(): Promise<void> {
       return;
     }
     const wsUrlFor = (index: number) =>
-      `${config.wsBaseUrls[index % config.wsBaseUrls.length]}/ws/${config.pageId}?token=${encodeURIComponent(token)}`;
+      `${config.wsBaseUrls[index % config.wsBaseUrls.length]}/ws/${config.pageId}`;
     const localIndices = Array.from({ length: config.clients }, (_, index) => index).filter(
       (index) => index % config.shardCount === config.shardIndex
     );
     const clientIndexById = new Map<string, number>();
     for (const index of localIndices) {
-      const client = new YjsWireClient(`client-${index}`, wsUrlFor(index), config.origin);
+      const client = new YjsWireClient(`client-${index}`, wsUrlFor(index), config.origin, token);
       clientIndexById.set(client.id, index);
       clients.push(client);
     }

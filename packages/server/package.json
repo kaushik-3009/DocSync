@@ -10,7 +10,11 @@
     "test:integration": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5432/collab_test} TEST_REDIS_URL=${TEST_REDIS_URL:-redis://localhost:6379/15} vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1158.0",
+    "@aws-sdk/s3-request-presigner": "^3.1158.0",
     "@collab/shared": "workspace:*",
+    "@fastify/cors": "^11.3.1",
+    "@fastify/swagger": "^9.9.2",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/context-async-hooks": "^2.9.0",
     "@opentelemetry/core": "^2.9.0",
@@ -19,6 +23,8 @@
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "bullmq": "^5.79.3",
+    "fastify": "^5.12.7",
+    "fastify-type-provider-zod": "^5.1.0",
     "ioredis": "5.10.1",
     "jsonwebtoken": "^9.0.2",
     "lib0": "^0.2.99",
@@ -30,7 +36,8 @@
     "rate-limiter-flexible": "^11.2.0",
     "ws": "^8.18.0",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.20"
+    "yjs": "^13.6.20",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",

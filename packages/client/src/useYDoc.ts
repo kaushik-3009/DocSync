@@ -13,9 +13,17 @@ import {
   type PresenceState,
 } from "@collab/shared";
 import { getLocalUser } from "./localUser.js";
-import { clearToken, getStoredToken, type AuthUser } from "./auth.js";
+import { clearToken, getStoredToken, refreshSession, type AuthUser } from "./auth.js";
+import { WS_URL, wsProtocols } from "./config.js";
 
-const SERVER_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:1234/ws";
+/** Reads the current access token each time y-websocket (re)connects, so a
+ *  token refreshed in the background is picked up without rebuilding the
+ *  provider. The token travels as a subprotocol, never in the URL. */
+class AuthenticatedWebSocket extends WebSocket {
+  constructor(url: string | URL) {
+    super(url, wsProtocols(getStoredToken()));
+  }
+}
 
 export interface YDocHandle {
   doc: Y.Doc;
@@ -121,10 +129,9 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     // again — exactly the "stuck on connecting…" symptom this fixes. An
     // effect's mount/cleanup/remount is the one lifecycle React actually
     // guarantees symmetry for, so connection setup/teardown belongs here.
-    const token = getStoredToken();
-    const nextProvider = new WebsocketProvider(SERVER_URL, pageId, doc, {
+    const nextProvider = new WebsocketProvider(WS_URL, pageId, doc, {
       connect: true,
-      params: token ? { token } : {},
+      WebSocketPolyfill: AuthenticatedWebSocket,
     });
     setProvider(nextProvider);
 
@@ -150,15 +157,27 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     // perfectly valid session. Setting `shouldConnect = false` here is what
     // `provider.disconnect()` does internally; it stops y-websocket's own
     // reconnect loop without tearing down anything this hook still owns.
+    let refreshAttempted = false;
     const onConnectionClose = (event: CloseEvent | null) => {
       if (event?.code === 4401 || event?.code === 4403 || event?.code === 4001) {
         nextProvider.shouldConnect = false;
+        // An expired access token is recoverable once: refresh, then let the
+        // polyfill pick up the new token on reconnect.
+        if (event.code === 4401 && !refreshAttempted) {
+          refreshAttempted = true;
+          void refreshSession().then((token) => {
+            if (token) nextProvider.connect();
+            else {
+              setConnectionDenied(true);
+              setConnectionDeniedReason("auth");
+            }
+          });
+          return;
+        }
         setConnectionDenied(true);
         setConnectionDeniedReason(event.code === 4401 ? "auth" : "access");
-        // A 4401 is a credential failure, not a page-level permission
-        // decision. Remove the unusable token so App can return to its
-        // mandatory login gate; otherwise the toolbar remains apparently
-        // signed in while the socket is permanently stuck on "Sign in again".
+        // A rejected credential (not a page permission) returns App to its
+        // login gate instead of a socket stuck on "Sign in again".
         if (event.code === 4401) clearToken();
       }
     };
