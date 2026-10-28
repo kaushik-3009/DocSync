@@ -21,6 +21,6 @@ if [[ ! -f "$plan_path" ]]; then
 fi
 
 echo "Applying only the reviewed plan; expiry is ${AWS_APPLY_EXPIRY_UTC} UTC."
-echo "This does not populate Secrets Manager or raise gateway_desired_count."
 cd "$infra_dir"
+terraform init -input=false -backend-config=backend.hcl >/dev/null
 terraform apply -input=false "$plan_path"

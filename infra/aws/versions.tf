@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.6.0"
+  # 1.10+ for S3-native state locking (use_lockfile).
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -7,6 +8,11 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Partial configuration: `terraform init -backend-config=backend.hcl`
+  # (see backend.hcl.example). State is encrypted in S3 and locked with a
+  # lockfile object, so two operators can't apply concurrently.
+  backend "s3" {}
 }
 
 provider "aws" {

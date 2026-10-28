@@ -1,0 +1,120 @@
+name: Deploy
+
+# Ships the current commit to the AWS environment created by infra/aws.
+# Authentication is GitHub OIDC -> the IAM role output by Terraform as
+# github_deploy_role_arn; no long-lived AWS keys are stored in GitHub.
+#
+# Setup (once): create a GitHub environment named "staging" (add required
+# reviewers to gate deploys) with these variables:
+#   AWS_REGION, AWS_DEPLOY_ROLE_ARN, ECR_REPOSITORY_URL, ECS_CLUSTER,
+#   ECS_GATEWAY_SERVICE, ECS_WORKER_SERVICE, CLIENT_BUCKET,
+#   CLOUDFRONT_DISTRIBUTION_ID, API_WS_URL (e.g. wss://api.example.com/ws)
+# and the repository variable DEPLOY_ENABLED=true to deploy on every push to main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/server/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Gateway and worker share the image; each keeps its own task
+      # definition (command, sizing, env) and only the image changes.
+      - name: Render task definitions
+        run: |
+          for component in gateway worker; do
+            service_var="ECS_${component^^}_SERVICE"
+            family=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${!service_var}" \
+              --query 'services[0].taskDefinition' --output text)
+            aws ecs describe-task-definition --task-definition "$family" --query taskDefinition \
+              | jq --arg image "$IMAGE" '.containerDefinitions[0].image = $image
+                  | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+              > "task-$component.json"
+          done
+        env:
+          ECS_GATEWAY_SERVICE: ${{ vars.ECS_GATEWAY_SERVICE }}
+          ECS_WORKER_SERVICE: ${{ vars.ECS_WORKER_SERVICE }}
+
+      # Rolling deploy: new gateways must pass /ready behind the ALB before old
+      # ones drain (SIGTERM -> 1012 close -> clients reconnect). The ECS
+      # circuit breaker rolls back a deploy that never becomes healthy.
+      - name: Deploy gateway
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: task-gateway.json
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_GATEWAY_SERVICE }}
+          wait-for-service-stability: true
+
+      - name: Deploy worker
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: task-worker.json
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_WORKER_SERVICE }}
+          wait-for-service-stability: true
+
+      - uses: pnpm/action-setup@v4
+        if: vars.CLIENT_BUCKET != ''
+      - uses: actions/setup-node@v4
+        if: vars.CLIENT_BUCKET != ''
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The client deploys after the gateway so it never talks to an older API.
+      - name: Build and publish the client
+        if: vars.CLIENT_BUCKET != ''
+        run: |
+          pnpm install --frozen-lockfile --filter @collab/client...
+          VITE_WS_URL="${{ vars.API_WS_URL }}" pnpm --filter @collab/client build
+          # Hashed assets are immutable; index.html must always revalidate.
+          aws s3 sync packages/client/dist "s3://${{ vars.CLIENT_BUCKET }}" --delete \
+            --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp packages/client/dist/index.html "s3://${{ vars.CLIENT_BUCKET }}/index.html" \
+            --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths /index.html
+
+      - name: Smoke test
+        run: |
+          base="${{ vars.API_WS_URL }}"
+          base="${base%/ws}"
+          base="${base/wss:/https:}"
+          base="${base/ws:/http:}"
+          curl -fsS --retry 5 --retry-delay 5 "$base/ready"

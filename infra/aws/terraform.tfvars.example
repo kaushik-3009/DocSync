@@ -1,16 +1,33 @@
-# Copy to terraform.tfvars (which is ignored) and replace every value.
-# Keep gateway_desired_count=0 for the first apply; populate Secrets Manager,
-# then set it to 2 only during the approved, time-boxed benchmark session.
-aws_region          = "us-east-2"
-project             = "docsync"
-environment         = "staging"
-owner               = "kaushik"
-destroy_after       = "2026-08-05T23:00:00Z"
-image_uri           = "085962187693.dkr.ecr.us-east-2.amazonaws.com/docsync-staging-gateway:bootstrap"
-allowed_origin      = "https://REPLACE-client-origin"
-db_username         = "collab"
-db_password         = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
-redis_auth_token    = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
-gateway_desired_count = 0
-worker_desired_count  = 0
-ws_connect_rate_limit_points = 30
+# Copy to terraform.tfvars (ignored by git) and fill in. Secrets can instead
+# come from TF_VAR_* environment variables so they never touch disk.
+aws_region  = "us-east-2"
+project     = "docsync"
+environment = "staging"
+owner       = "your-name"
+
+# First deploy: push an image to the ECR repo this stack creates (or any
+# reviewed registry) and reference it by digest. Later deploys use the
+# GitHub Actions workflow.
+image_uri = "<account>.dkr.ecr.us-east-2.amazonaws.com/docsync-staging-server@sha256:<digest>"
+
+allowed_origins = []
+
+jwt_secret       = "REPLACE_WITH_32_PLUS_RANDOM_CHARS"
+db_password      = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
+redis_auth_token = "REPLACE_WITH_16_PLUS_RANDOM_CHARS"
+
+# Optional TLS for the API: either an existing certificate...
+# certificate_arn = "arn:aws:acm:us-east-2:<account>:certificate/<id>"
+# ...or a hostname in a Route 53 zone you own.
+# api_domain_name = "api.docsync.example.com"
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# Staging cost profile: single-AZ data tier, deletable on destroy.
+db_multi_az            = false
+db_deletion_protection = false
+redis_replicas         = 0
+gateway_min_count      = 2
+gateway_max_count      = 4
+
+# github_repository = "your-org/DocSync"
+# alarm_email       = "you@example.com"
