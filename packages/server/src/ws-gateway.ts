@@ -106,7 +106,10 @@ export function attachWsGateway(
     if (rateLimit) {
       tryConsume(rateLimit.connect, clientIp(request, trustProxy)).then(({ allowed, infraError }) => {
         if (infraError) {
-          log.error({ event: "rate_limiter_store_error", scope: "ws_connect", err: infraError }, "rate limiter store unavailable — failing open");
+          log.error(
+            { event: "rate_limiter_store_error", scope: "ws_connect", err: infraError },
+            "rate limiter store unavailable — failing open"
+          );
         }
         if (!allowed) {
           rateLimitRejectionsTotal.inc({ scope: "ws_connect" });
@@ -148,7 +151,10 @@ export function attachWsGateway(
       if (!room) {
         bufferedBytes += bytes.byteLength;
         if (bufferedBytes > maxBufferedBytes) {
-          log.warn({ event: "connection_buffer_exceeded", pageId, connectionId, bufferedBytes }, "closing connection with excessive pre-room data");
+          log.warn(
+            { event: "connection_buffer_exceeded", pageId, connectionId, bufferedBytes },
+            "closing connection with excessive pre-room data"
+          );
           ws.close(1009, "message buffer too large");
           return;
         }
@@ -172,7 +178,10 @@ export function attachWsGateway(
 
       tryConsume(rateLimit.message, messageLimitKey).then(({ allowed, infraError }) => {
         if (infraError) {
-          log.error({ event: "rate_limiter_store_error", scope: "ws_message", err: infraError }, "rate limiter store unavailable — failing open");
+          log.error(
+            { event: "rate_limiter_store_error", scope: "ws_message", err: infraError },
+            "rate limiter store unavailable — failing open"
+          );
         }
         if (!allowed) {
           rateLimitRejectionsTotal.inc({ scope: "ws_message" });

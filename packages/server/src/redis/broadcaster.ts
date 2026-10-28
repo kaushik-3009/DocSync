@@ -83,9 +83,7 @@ export class RedisRoomBroadcaster implements RoomBroadcaster, CommittedUpdatePub
       // committed self-echo idempotent, so deliver it for reconciliation.
       if (senderId.equals(this.instanceId) && type !== MSG_COMMITTED_UPDATE) return;
       const hasTraceparent = messageBuf.readUInt8(9) === 1;
-      const traceparent = hasTraceparent
-        ? messageBuf.subarray(10, 10 + TRACEPARENT_BYTES).toString("ascii")
-        : undefined;
+      const traceparent = hasTraceparent ? messageBuf.subarray(10, 10 + TRACEPARENT_BYTES).toString("ascii") : undefined;
       const payloadOffset = hasTraceparent ? 10 + TRACEPARENT_BYTES : 10;
       const payload = new Uint8Array(messageBuf.subarray(payloadOffset));
 
@@ -115,9 +113,7 @@ export class RedisRoomBroadcaster implements RoomBroadcaster, CommittedUpdatePub
   }
 
   private frame(type: number, payload: Uint8Array, traceparent = currentTraceparent()): Buffer {
-    const header = traceparent
-      ? Buffer.concat([Buffer.from([1]), Buffer.from(traceparent, "ascii")])
-      : Buffer.from([0]);
+    const header = traceparent ? Buffer.concat([Buffer.from([1]), Buffer.from(traceparent, "ascii")]) : Buffer.from([0]);
     return Buffer.concat([this.instanceId, Buffer.from([type]), header, Buffer.from(payload)]);
   }
 

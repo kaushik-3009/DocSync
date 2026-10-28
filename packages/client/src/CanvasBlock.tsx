@@ -89,7 +89,12 @@ export function CanvasBlock({ doc, blockId, readOnly = false }: { doc: Y.Doc; bl
         <span>Canvas</span>
       </div>
       <div className="canvas-block-body">
-        <Tldraw store={store} onMount={(editor) => { editor.updateInstanceState({ isReadonly: readOnly }); }} />
+        <Tldraw
+          store={store}
+          onMount={(editor) => {
+            editor.updateInstanceState({ isReadonly: readOnly });
+          }}
+        />
       </div>
     </div>
   );

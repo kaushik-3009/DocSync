@@ -36,17 +36,26 @@ function normalizeBlockType(value: unknown): BlockType | null {
   const normalized = value.toLowerCase().replace(/[ -]/g, "_");
   if (normalized === "text" || normalized === "plain_text" || normalized === "text_block") return "paragraph";
   if (normalized === "code_block" || normalized === "codeblock") return "code";
-  return blockTypes.has(normalized as BlockType) ? normalized as BlockType : null;
+  return blockTypes.has(normalized as BlockType) ? (normalized as BlockType) : null;
 }
 
 /** Parses Gemini's JSON-only response and rejects anything outside the small
  * mutation vocabulary the server can validate and commit. The model never
  * gets to send a raw Yjs update or arbitrary JavaScript. */
 export function parseAgentPlan(raw: string): AgentPlan {
-  const stripped = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
   const normalized = stripped.startsWith("{") ? stripped : stripped.match(/\{[\s\S]*\}/)?.[0];
   if (!normalized) throw new Error("Gemini returned an invalid edit plan");
-  const value = JSON.parse(normalized) as { summary?: unknown; message?: unknown; operations?: unknown; edits?: unknown; changes?: unknown };
+  const value = JSON.parse(normalized) as {
+    summary?: unknown;
+    message?: unknown;
+    operations?: unknown;
+    edits?: unknown;
+    changes?: unknown;
+  };
   if (!value || typeof value !== "object") throw new Error("Gemini returned an invalid edit plan");
   const candidates = value.operations ?? value.edits ?? value.changes;
   const operationList = Array.isArray(candidates) ? candidates : candidates && typeof candidates === "object" ? [candidates] : [];
@@ -63,10 +72,16 @@ function validateOperation(candidate: unknown): AgentOperation {
   const rawOp = operation.op ?? operation.action ?? operation.operation;
   if (rawOp !== undefined && typeof rawOp !== "string") throw new Error("Gemini returned an invalid operation");
   const opAliases: Record<string, AgentOperation["op"]> = {
-    replace: "replace_text", update_text: "replace_text", edit_text: "replace_text",
-    insert: "insert_block", add_block: "insert_block", create_block: "insert_block",
-    set_type: "set_block_type", change_type: "set_block_type",
-    remove: "delete_block", delete: "delete_block",
+    replace: "replace_text",
+    update_text: "replace_text",
+    edit_text: "replace_text",
+    insert: "insert_block",
+    add_block: "insert_block",
+    create_block: "insert_block",
+    set_type: "set_block_type",
+    change_type: "set_block_type",
+    remove: "delete_block",
+    delete: "delete_block",
     title: "set_title",
   };
   const op = typeof rawOp === "string" ? (opAliases[rawOp] ?? rawOp) : undefined;
@@ -117,7 +132,8 @@ export function applyAgentPlan(doc: Y.Doc, plan: AgentPlan): void {
       if (operation.op === "insert_block") {
         const id = randomUUID();
         if (operation.afterBlockId) {
-          if (!insertBlockAfter(doc, operation.afterBlockId, id, operation.type, operation.text)) throw new Error(`block ${operation.afterBlockId} does not exist`);
+          if (!insertBlockAfter(doc, operation.afterBlockId, id, operation.type, operation.text))
+            throw new Error(`block ${operation.afterBlockId} does not exist`);
         } else {
           createBlock(doc, id, { type: operation.type, text: operation.text });
         }

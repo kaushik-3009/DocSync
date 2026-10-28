@@ -19,10 +19,7 @@ export interface DeltaOp {
  * on ranges of the deleted/reinserted content. Touching only the changed
  * middle section leaves surrounding formatted ranges alone.
  */
-export function computeTextDiff(
-  oldText: string,
-  newText: string
-): { start: number; deleteCount: number; insertText: string } {
+export function computeTextDiff(oldText: string, newText: string): { start: number; deleteCount: number; insertText: string } {
   let start = 0;
   const maxPrefix = Math.min(oldText.length, newText.length);
   while (start < maxPrefix && oldText[start] === newText[start]) start++;

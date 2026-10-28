@@ -77,7 +77,10 @@ describe("group commit", () => {
       if (committed.length === 1) return firstCommit.promise;
       return entries.map((_, index) => 2 + index);
     });
-    const roles = new Map<string, Role>([["editor-user", "editor"], ["revoked-user", "editor"]]);
+    const roles = new Map<string, Role>([
+      ["editor-user", "editor"],
+      ["revoked-user", "editor"],
+    ]);
     const mutationAuthorizer = vi.fn(async () => new Map(roles));
     const room = new Room("page-a", new Y.Doc(), 0, {
       pageStore: { recordUpdates } as unknown as PageStore,
@@ -161,21 +164,41 @@ describe("appendOps", () => {
     const pool = await createTestPool();
     const first = await appendOps(pool, "page-a", [{ update: new Uint8Array([1]) }, { update: new Uint8Array([2]) }]);
     const other = await appendOps(pool, "page-b", [{ update: new Uint8Array([9]) }]);
-    const second = await appendOps(pool, "page-a", [{ update: new Uint8Array([3]) }, { update: new Uint8Array([4]) }, { update: new Uint8Array([5]) }]);
+    const second = await appendOps(pool, "page-a", [
+      { update: new Uint8Array([3]) },
+      { update: new Uint8Array([4]) },
+      { update: new Uint8Array([5]) },
+    ]);
 
     expect(first).toEqual([1, 2]);
     expect(other).toEqual([1]);
     expect(second).toEqual([3, 4, 5]);
     const ops = await getOpsInRange(pool, "page-a", 0);
-    expect(ops.map((op) => [op.seq, op.update[0]])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]);
+    expect(ops.map((op) => [op.seq, op.update[0]])).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+      [4, 4],
+      [5, 5],
+    ]);
   });
 
   it("writes outbox rows in the same transaction when asked", async () => {
     const pool = await createTestPool();
-    await appendOps(pool, "page-a", [{ update: new Uint8Array([1]), traceparent: "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01" }, { update: new Uint8Array([2]) }], {
-      enqueueFanout: true,
-    });
-    const { rows } = await pool.query<{ seq: string; traceparent: string | null }>("SELECT seq, traceparent FROM fanout_outbox ORDER BY seq");
+    await appendOps(
+      pool,
+      "page-a",
+      [
+        { update: new Uint8Array([1]), traceparent: "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01" },
+        { update: new Uint8Array([2]) },
+      ],
+      {
+        enqueueFanout: true,
+      }
+    );
+    const { rows } = await pool.query<{ seq: string; traceparent: string | null }>(
+      "SELECT seq, traceparent FROM fanout_outbox ORDER BY seq"
+    );
     expect(rows.map((row) => [Number(row.seq), row.traceparent])).toEqual([
       [1, "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"],
       [2, null],

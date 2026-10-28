@@ -19,10 +19,13 @@ async function insertToken(pool: Pool, userId: string, familyId: string): Promis
   const id = randomUUID();
   const secret = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
-  await pool.query(
-    `INSERT INTO refresh_tokens (id, user_id, family_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5)`,
-    [id, userId, familyId, hashSecret(secret), expiresAt]
-  );
+  await pool.query(`INSERT INTO refresh_tokens (id, user_id, family_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5)`, [
+    id,
+    userId,
+    familyId,
+    hashSecret(secret),
+    expiresAt,
+  ]);
   // `<id>.<secret>`: the id is a lookup key, only the secret's hash is stored.
   return { token: `${id}.${secret}`, expiresAt };
 }
@@ -33,8 +36,7 @@ export function issueRefreshToken(pool: Pool, userId: string): Promise<IssuedRef
 }
 
 export type RotationResult =
-  | { ok: true; userId: string; refreshToken: IssuedRefreshToken }
-  | { ok: false; reason: "invalid" | "expired" | "revoked" | "reused" };
+  { ok: true; userId: string; refreshToken: IssuedRefreshToken } | { ok: false; reason: "invalid" | "expired" | "revoked" | "reused" };
 
 /**
  * Exchanges a refresh token for a new one in the same family. Each token is
@@ -61,17 +63,20 @@ export async function rotateRefreshToken(pool: Pool, presented: string): Promise
   if (row.revoked_at) return { ok: false, reason: "revoked" };
   if (row.rotated_at) {
     await revokeFamily(pool, row.family_id);
-    log.warn({ event: "refresh_token_reuse_detected", userId: row.user_id, familyId: row.family_id }, "revoked session after refresh token reuse");
+    log.warn(
+      { event: "refresh_token_reuse_detected", userId: row.user_id, familyId: row.family_id },
+      "revoked session after refresh token reuse"
+    );
     return { ok: false, reason: "reused" };
   }
   if (new Date(row.expires_at).getTime() <= Date.now()) return { ok: false, reason: "expired" };
 
   // Conditional update: two concurrent refreshes with the same token cannot
   // both succeed; the loser is treated as reuse.
-  const claimed = await pool.query(`UPDATE refresh_tokens SET rotated_at = $1 WHERE id = $2 AND rotated_at IS NULL AND revoked_at IS NULL RETURNING id`, [
-    new Date(),
-    id,
-  ]);
+  const claimed = await pool.query(
+    `UPDATE refresh_tokens SET rotated_at = $1 WHERE id = $2 AND rotated_at IS NULL AND revoked_at IS NULL RETURNING id`,
+    [new Date(), id]
+  );
   if ((claimed.rowCount ?? 0) === 0) {
     await revokeFamily(pool, row.family_id);
     return { ok: false, reason: "reused" };

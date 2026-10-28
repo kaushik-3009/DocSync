@@ -66,7 +66,10 @@ export const documentRoutes: RoutePlugin = async (app, { deps, guards }) => {
     const { pageId } = request.params;
     const pool = guards.pool();
     await guards.pageRole(request, pageId);
-    const { rows } = await pool.query<{ preview: string; updated_at: string }>("SELECT preview, updated_at FROM page_previews WHERE page_id = $1", [pageId]);
+    const { rows } = await pool.query<{ preview: string; updated_at: string }>(
+      "SELECT preview, updated_at FROM page_previews WHERE page_id = $1",
+      [pageId]
+    );
     if (!rows[0]) throw new HttpError(404, "no preview generated yet for this page");
     return { pageId, preview: rows[0].preview, updatedAt: rows[0].updated_at };
   });

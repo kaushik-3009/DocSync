@@ -58,15 +58,17 @@ const invitation = await request(`/pages/${documentId}/roles`, {
 assert(invitation.status === 202, "invitation request failed", invitation);
 assert(invitation.value.emailStatus === "sent", "Resend did not report a sent email", invitation);
 
-console.log(JSON.stringify({
-  passed: true,
-  gemini: {
-    status: assistant.status,
-    model: assistant.value.model ?? null,
-    exactInstructionFollowed: assistant.value.answer.trim() === "Gemini provider verified",
-  },
-  resend: {
-    status: invitation.value.emailStatus,
-    recipientDomain: recipient.split("@")[1],
-  },
-}));
+console.log(
+  JSON.stringify({
+    passed: true,
+    gemini: {
+      status: assistant.status,
+      model: assistant.value.model ?? null,
+      exactInstructionFollowed: assistant.value.answer.trim() === "Gemini provider verified",
+    },
+    resend: {
+      status: invitation.value.emailStatus,
+      recipientDomain: recipient.split("@")[1],
+    },
+  })
+);

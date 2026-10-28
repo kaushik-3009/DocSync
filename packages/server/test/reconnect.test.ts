@@ -28,11 +28,17 @@ afterEach(async () => {
   wss.clients.forEach((client) => client.terminate());
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    wss.close(() => { clearTimeout(timer); resolve(); });
+    wss.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    httpServer.close(() => { clearTimeout(timer); resolve(); });
+    httpServer.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 });
 

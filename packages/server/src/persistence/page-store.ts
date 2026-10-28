@@ -1,6 +1,16 @@
 import type * as Y from "yjs";
 import type { Pool } from "pg";
-import { appendOps, getCurrentSeq, getOpsInRange, listLogicalVersionSummaries, listOpSummaries, type AppendEntry, type LogicalVersionSummary, type OpRow, type OpSummary } from "./ops-log.js";
+import {
+  appendOps,
+  getCurrentSeq,
+  getOpsInRange,
+  listLogicalVersionSummaries,
+  listOpSummaries,
+  type AppendEntry,
+  type LogicalVersionSummary,
+  type OpRow,
+  type OpSummary,
+} from "./ops-log.js";
 import { saveSnapshot } from "./snapshots.js";
 import { replayDocument } from "./replay.js";
 import { childLogger } from "../logger.js";
@@ -39,7 +49,7 @@ export class PageStore {
       [
         {
           update,
-          traceparent: options.enqueueFanout ? currentTraceparent() ?? undefined : undefined,
+          traceparent: options.enqueueFanout ? (currentTraceparent() ?? undefined) : undefined,
           clientMutationId: options.clientMutationId,
           clientCreatedAtMs: options.clientCreatedAtMs,
         },
@@ -79,7 +89,10 @@ export class PageStore {
               // The operations (and outbox rows) already committed. Treating a
               // later optimization failure as a mutation failure would close
               // the sources and misreport durable updates as rejected.
-              log.error({ event: "snapshot_failed_after_commit", pageId, seq: lastSeq, err }, "snapshot failed after durable op commit; replay remains available from ops log");
+              log.error(
+                { event: "snapshot_failed_after_commit", pageId, seq: lastSeq, err },
+                "snapshot failed after durable op commit; replay remains available from ops log"
+              );
             }
           }
           return seqs;

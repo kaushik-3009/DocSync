@@ -73,9 +73,10 @@ describe("comments (shared Y.Doc helpers)", () => {
   it("extracts distinct mentioned emails and ignores plain text", () => {
     expect(extractMentionEmails("no mentions here")).toEqual([]);
     expect(extractMentionEmails("hey @alice@example.com can you look?")).toEqual(["alice@example.com"]);
-    expect(
-      extractMentionEmails("cc @alice@example.com and @bob@example.com, also @alice@example.com again")
-    ).toEqual(["alice@example.com", "bob@example.com"]);
+    expect(extractMentionEmails("cc @alice@example.com and @bob@example.com, also @alice@example.com again")).toEqual([
+      "alice@example.com",
+      "bob@example.com",
+    ]);
   });
 });
 
@@ -113,10 +114,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
     const pool = await createTestPool();
     const author = await createUser(pool, "author@example.com", "pw123456");
     const mentioned = await createUser(pool, "mentioned@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", [
-      "mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", ["mention-page", mentioned.id]);
 
     const mentionsStore = new MentionsStore(pool);
     await mentionsStore.recordMentions({
@@ -155,10 +153,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("Room automatically indexes @mentions after persisting a comment, end to end", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "teammate@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "auto-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["auto-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
@@ -181,10 +176,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("indexes a mention added by editing a comment that first had none", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "late-mention@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "edit-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["edit-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
@@ -204,10 +196,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("removes indexed mentions once their comment is deleted", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "deleted-comment@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "delete-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["delete-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);

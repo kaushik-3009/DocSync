@@ -12,6 +12,9 @@ export interface RouteOptions {
 /** A route module: a Fastify plugin that receives the app's dependencies. */
 export type RoutePlugin = FastifyPluginAsync<RouteOptions, RawServerDefault, ZodTypeProvider>;
 
-export const pageIdSchema = z.string().regex(/^[A-Za-z0-9_-]+$/).max(128);
+export const pageIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]+$/)
+  .max(128);
 export const pageParams = z.object({ pageId: pageIdSchema });
 export const bearer = [{ bearer: [] }];

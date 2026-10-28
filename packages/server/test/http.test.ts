@@ -29,7 +29,11 @@ async function build(overrides: { httpPoints?: number } = {}) {
     mentionsStore: null,
     exportStorage: new PostgresExportStorage(pool),
     jwtSecret: JWT_SECRET,
-    limiters: { http: createHttpLimiter(null, overrides.httpPoints ?? 1_000), login: createLoginLimiter(null), register: createRegisterLimiter(null) },
+    limiters: {
+      http: createHttpLimiter(null, overrides.httpPoints ?? 1_000),
+      login: createLoginLimiter(null),
+      register: createRegisterLimiter(null),
+    },
     pingRedis: async () => true,
     notifyUser: async () => undefined,
     maxBodyBytes: 65_536,
@@ -81,9 +85,17 @@ describe("HTTP API", () => {
   it("registers, rejects a duplicate email, and logs in", async () => {
     const session = await register("ada@example.com");
     expect(session.expiresIn).toBe(15 * 60);
-    expect((await app.inject({ method: "POST", url: "/auth/register", payload: { email: "ada@example.com", password: "x" } })).statusCode).toBe(409);
-    expect((await app.inject({ method: "POST", url: "/auth/login", payload: { email: "ada@example.com", password: "wrong" } })).statusCode).toBe(401);
-    const login = await app.inject({ method: "POST", url: "/auth/login", payload: { email: "ada@example.com", password: "correct horse battery" } });
+    expect(
+      (await app.inject({ method: "POST", url: "/auth/register", payload: { email: "ada@example.com", password: "x" } })).statusCode
+    ).toBe(409);
+    expect(
+      (await app.inject({ method: "POST", url: "/auth/login", payload: { email: "ada@example.com", password: "wrong" } })).statusCode
+    ).toBe(401);
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "ada@example.com", password: "correct horse battery" },
+    });
     expect(login.statusCode).toBe(200);
     expect(login.json()).toHaveProperty("refreshToken");
   });
@@ -128,18 +140,37 @@ describe("HTTP API", () => {
     const other = await register("other@example.com");
     const pageId = await createDocument(owner.token);
 
-    const badRole = await app.inject({ method: "POST", url: `/pages/${pageId}/roles`, headers: auth(owner.token), payload: { email: "x@example.com", role: "owner" } });
+    const badRole = await app.inject({
+      method: "POST",
+      url: `/pages/${pageId}/roles`,
+      headers: auth(owner.token),
+      payload: { email: "x@example.com", role: "owner" },
+    });
     expect(badRole.statusCode).toBe(400);
-    const notOwner = await app.inject({ method: "POST", url: `/pages/${pageId}/roles`, headers: auth(other.token), payload: { email: "x@example.com", role: "viewer" } });
+    const notOwner = await app.inject({
+      method: "POST",
+      url: `/pages/${pageId}/roles`,
+      headers: auth(other.token),
+      payload: { email: "x@example.com", role: "viewer" },
+    });
     expect(notOwner.statusCode).toBe(403);
-    const invited = await app.inject({ method: "POST", url: `/pages/${pageId}/roles`, headers: auth(owner.token), payload: { email: "other@example.com", role: "editor" } });
+    const invited = await app.inject({
+      method: "POST",
+      url: `/pages/${pageId}/roles`,
+      headers: auth(owner.token),
+      payload: { email: "other@example.com", role: "editor" },
+    });
     expect(invited.statusCode).toBe(202);
 
     const { invitationId } = invited.json() as { invitationId: string };
-    expect((await app.inject({ method: "POST", url: `/invitations/${invitationId}/accept`, headers: auth(other.token) })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/invitations/${invitationId}/accept`, headers: auth(other.token) })).statusCode).toBe(
+      200
+    );
     expect((await app.inject({ url: `/pages/${pageId}/versions`, headers: auth(other.token) })).statusCode).toBe(200);
     // Answering twice is a conflict, not a server error.
-    expect((await app.inject({ method: "POST", url: `/invitations/${invitationId}/accept`, headers: auth(other.token) })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/invitations/${invitationId}/accept`, headers: auth(other.token) })).statusCode).toBe(
+      409
+    );
   });
 
   it("restores a version through the admission queue and keeps later history", async () => {
@@ -156,7 +187,9 @@ describe("HTTP API", () => {
     expect(restored.statusCode).toBe(200);
     expect((restored.json() as { blocks: Array<{ id: string }> }).blocks.map((block) => block.id)).toEqual(["b1"]);
     expect(await pageStore.currentSeq(pageId)).toBe(3);
-    expect((await app.inject({ method: "POST", url: `/pages/${pageId}/versions/99/restore`, headers: auth(owner.token) })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: `/pages/${pageId}/versions/99/restore`, headers: auth(owner.token) })).statusCode).toBe(
+      404
+    );
   });
 
   it("authenticates export downloads before revealing whether an export exists", async () => {
@@ -183,7 +216,11 @@ describe("HTTP API", () => {
     expect(preflight.statusCode).toBe(204);
     expect(preflight.headers["access-control-allow-origin"]).toBe(ORIGIN);
     expect(String(preflight.headers["access-control-allow-methods"])).toContain("DELETE");
-    const foreign = await app.inject({ method: "OPTIONS", url: "/documents", headers: { origin: "https://evil.example", "access-control-request-method": "GET" } });
+    const foreign = await app.inject({
+      method: "OPTIONS",
+      url: "/documents",
+      headers: { origin: "https://evil.example", "access-control-request-method": "GET" },
+    });
     expect(foreign.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
@@ -199,6 +236,8 @@ describe("HTTP API", () => {
   it("publishes an OpenAPI document covering the routes", async () => {
     const spec = (await app.inject("/openapi.json")).json() as { openapi: string; paths: Record<string, unknown> };
     expect(spec.openapi).toMatch(/^3\./);
-    expect(Object.keys(spec.paths)).toEqual(expect.arrayContaining(["/auth/login", "/documents", "/pages/{pageId}/versions/{seq}/restore"]));
+    expect(Object.keys(spec.paths)).toEqual(
+      expect.arrayContaining(["/auth/login", "/documents", "/pages/{pageId}/versions/{seq}/restore"])
+    );
   });
 });

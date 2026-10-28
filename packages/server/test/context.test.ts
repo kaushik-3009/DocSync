@@ -21,7 +21,7 @@ describe("fresh assistant context", () => {
         peekRoom: () => room,
         getOrCreateRoom: async () => room!,
         releaseRoom,
-      },
+      }
     );
 
     expect(state.baseSeq).toBe(3);
@@ -31,14 +31,16 @@ describe("fresh assistant context", () => {
 
   it("fails closed instead of planning from a stale room sequence", async () => {
     room = new Room("page-b", new Y.Doc(), 1);
-    await expect(loadFreshAssistantState(
-      "page-b",
-      { currentSeq: async () => 2 },
-      {
-        peekRoom: () => room,
-        getOrCreateRoom: async () => room!,
-        releaseRoom: vi.fn(),
-      },
-    )).rejects.toThrow("assistant state is catching up");
+    await expect(
+      loadFreshAssistantState(
+        "page-b",
+        { currentSeq: async () => 2 },
+        {
+          peekRoom: () => room,
+          getOrCreateRoom: async () => room!,
+          releaseRoom: vi.fn(),
+        }
+      )
+    ).rejects.toThrow("assistant state is catching up");
   });
 });

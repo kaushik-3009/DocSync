@@ -49,7 +49,9 @@ describe("invitation lifecycle", () => {
 
     expect(invitation.inviteeEmail).toBe("future@example.com");
     expect(await deliverInvitationEmail(pool, { appBaseUrl: "http://localhost:5173" }, invitation)).toBe("skipped");
-    const deliveries = await pool.query("SELECT status, error_code FROM email_deliveries WHERE invitation_id = $1", [invitation.invitationId]);
+    const deliveries = await pool.query("SELECT status, error_code FROM email_deliveries WHERE invitation_id = $1", [
+      invitation.invitationId,
+    ]);
     expect(deliveries.rows).toEqual([{ status: "skipped", error_code: "email_not_configured" }]);
   });
 });

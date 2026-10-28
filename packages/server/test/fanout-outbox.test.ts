@@ -40,9 +40,7 @@ describe("transactional fanout outbox", () => {
 
     await outbox.drain();
 
-    expect(publisher.publishCommittedUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ pageId: "page-a", seq: 1, update })
-    );
+    expect(publisher.publishCommittedUpdate).toHaveBeenCalledWith(expect.objectContaining({ pageId: "page-a", seq: 1, update }));
     expect(await outbox.pendingCount()).toBe(0);
   });
 

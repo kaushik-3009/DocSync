@@ -169,7 +169,6 @@ describe("replayDocument", () => {
     expect(serializeDocument(atV1).map((b) => b.text)).toEqual(["v1"]);
     expect(serializeDocument(atV2).map((b) => b.text)).toEqual(["v1", "v2"]);
   });
-
 });
 
 describe("PageStore", () => {

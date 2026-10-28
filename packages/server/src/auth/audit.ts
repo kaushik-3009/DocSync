@@ -43,10 +43,10 @@ export async function listAuditLog(pool: Pool, pageId: string, limit = 100): Pro
     event: string;
     metadata: Record<string, unknown>;
     created_at: string;
-  }>(
-    "SELECT id, user_id, page_id, event, metadata, created_at FROM audit_log WHERE page_id = $1 ORDER BY id DESC LIMIT $2",
-    [pageId, limit]
-  );
+  }>("SELECT id, user_id, page_id, event, metadata, created_at FROM audit_log WHERE page_id = $1 ORDER BY id DESC LIMIT $2", [
+    pageId,
+    limit,
+  ]);
   return result.rows.map((r) => ({
     id: r.id,
     userId: r.user_id,

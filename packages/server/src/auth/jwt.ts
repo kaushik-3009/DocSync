@@ -39,7 +39,7 @@ export function wsAuthProtocol(token: string): string {
 
 /** Extracts the access token from a `Sec-WebSocket-Protocol` request header. */
 export function tokenFromWsProtocols(header: string | string[] | undefined): string | null {
-  const offered = (Array.isArray(header) ? header.join(",") : header ?? "").split(",").map((value) => value.trim());
+  const offered = (Array.isArray(header) ? header.join(",") : (header ?? "")).split(",").map((value) => value.trim());
   const auth = offered.find((value) => value.startsWith(WS_AUTH_PROTOCOL_PREFIX));
   return auth ? auth.slice(WS_AUTH_PROTOCOL_PREFIX.length) : null;
 }

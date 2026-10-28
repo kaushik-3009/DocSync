@@ -63,8 +63,8 @@ describe("metrics registry", () => {
     rateLimitRejectionsTotal.inc({ scope: "login" });
 
     const body = await metricsRegistry.metrics();
-    expect(body).toContain('ws_connections_active 2');
-    expect(body).toContain('ws_connections_total 1');
+    expect(body).toContain("ws_connections_active 2");
+    expect(body).toContain("ws_connections_total 1");
     expect(body).toContain("rooms_active 3");
     expect(body).toContain('collab_updates_total{outcome="durable"} 1');
     expect(body).toContain("collab_updates_pending 2");

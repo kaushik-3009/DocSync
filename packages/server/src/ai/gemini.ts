@@ -6,9 +6,7 @@ export interface GeminiConfig {
   model: string;
 }
 
-export type GeminiChatResult =
-  | { kind: "answer"; answer: string }
-  | { kind: "edit_plan"; plan: AgentPlan };
+export type GeminiChatResult = { kind: "answer"; answer: string } | { kind: "edit_plan"; plan: AgentPlan };
 
 export class AiNotConfiguredError extends Error {
   constructor() {
@@ -23,7 +21,7 @@ export class GeminiProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
-    readonly phase: "answer" | "classification" | "content" | "plan" = "classification",
+    readonly phase: "answer" | "classification" | "content" | "plan" = "classification"
   ) {
     super(message);
     this.name = "GeminiProviderError";
@@ -67,9 +65,15 @@ export async function askGemini(
     choices?: Array<{ message?: { content?: string } }>;
     error?: { message?: string };
   };
-  if (!response.ok) throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "answer");
+  if (!response.ok)
+    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "answer");
   const answer = body.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new GeminiProviderError("Gemini returned no answer (the provider may have filtered or truncated the response)", response.status, "answer");
+  if (!answer)
+    throw new GeminiProviderError(
+      "Gemini returned no answer (the provider may have filtered or truncated the response)",
+      response.status,
+      "answer"
+    );
   return answer;
 }
 
@@ -78,7 +82,7 @@ export async function askGemini(
  * mutation all at once. */
 async function generateGeminiContent(
   config: GeminiConfig,
-  input: { prompt: string; role: string; kind: "prose" | "code" },
+  input: { prompt: string; role: string; kind: "prose" | "code" }
 ): Promise<string> {
   if (!config.apiKey) throw new AiNotConfiguredError();
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
@@ -91,9 +95,10 @@ async function generateGeminiContent(
       messages: [
         {
           role: "system",
-          content: input.kind === "code"
-            ? "Generate only the requested code. Return raw code with no markdown fences, explanation, JSON, or claim that you edited a document."
-            : "Generate only the requested prose. Return the prose itself with no preamble, explanation, JSON, markdown fences, or claim that you edited a document.",
+          content:
+            input.kind === "code"
+              ? "Generate only the requested code. Return raw code with no markdown fences, explanation, JSON, or claim that you edited a document."
+              : "Generate only the requested prose. Return the prose itself with no preamble, explanation, JSON, markdown fences, or claim that you edited a document.",
         },
         { role: "user", content: `The caller has ${input.role} access. Write the requested ${input.kind} content:\n${input.prompt}` },
       ],
@@ -103,10 +108,16 @@ async function generateGeminiContent(
     choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
     error?: { message?: string };
   };
-  if (!response.ok) throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "content");
+  if (!response.ok)
+    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "content");
   const rawContent = body.choices?.[0]?.message?.content;
   const content = (typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join(""))?.trim();
-  if (!content) throw new GeminiProviderError("Gemini returned no generated content (the provider may have filtered or truncated the response)", response.status, "content");
+  if (!content)
+    throw new GeminiProviderError(
+      "Gemini returned no generated content (the provider may have filtered or truncated the response)",
+      response.status,
+      "content"
+    );
   return content;
 }
 
@@ -128,7 +139,7 @@ export async function planGemini(
         {
           role: "system",
           content:
-            "You are DocSync's editing agent. Return JSON only with this exact shape: {\"summary\": string, \"operations\": [{\"op\": \"replace_text\", \"blockId\": string, \"text\": string} | {\"op\": \"set_block_type\", \"blockId\": string, \"type\": \"paragraph\"|\"heading\"|\"todo\"|\"bullet\"|\"canvas\"|\"code\"} | {\"op\": \"set_checked\", \"blockId\": string, \"checked\": boolean} | {\"op\": \"set_language\", \"blockId\": string, \"language\": \"javascript\"|\"python\"|\"plaintext\"} | {\"op\": \"insert_block\", \"afterBlockId\": string, \"type\": string, \"text\": string} | {\"op\": \"delete_block\", \"blockId\": string} | {\"op\": \"set_title\", \"text\": string}]}. Preserve existing block IDs. Use at most 20 operations. Never invent block IDs. If no change is needed, return an empty operations array. Do not include markdown fences or commentary.",
+            'You are DocSync\'s editing agent. Return JSON only with this exact shape: {"summary": string, "operations": [{"op": "replace_text", "blockId": string, "text": string} | {"op": "set_block_type", "blockId": string, "type": "paragraph"|"heading"|"todo"|"bullet"|"canvas"|"code"} | {"op": "set_checked", "blockId": string, "checked": boolean} | {"op": "set_language", "blockId": string, "language": "javascript"|"python"|"plaintext"} | {"op": "insert_block", "afterBlockId": string, "type": string, "text": string} | {"op": "delete_block", "blockId": string} | {"op": "set_title", "text": string}]}. Preserve existing block IDs. Use at most 20 operations. Never invent block IDs. If no change is needed, return an empty operations array. Do not include markdown fences or commentary.',
         },
         {
           role: "user",
@@ -141,10 +152,16 @@ export async function planGemini(
     choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
     error?: { message?: string };
   };
-  if (!response.ok) throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "plan");
+  if (!response.ok)
+    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "plan");
   const rawContent = body.choices?.[0]?.message?.content;
   const content = typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join("");
-  if (!content) throw new GeminiProviderError("Gemini returned no edit plan (the provider may have filtered or truncated the response)", response.status, "plan");
+  if (!content)
+    throw new GeminiProviderError(
+      "Gemini returned no edit plan (the provider may have filtered or truncated the response)",
+      response.status,
+      "plan"
+    );
   try {
     return parseAgentPlan(content);
   } catch (error) {
@@ -184,7 +201,7 @@ export async function chatGemini(
         {
           role: "system",
           content:
-            "You are DocSync's unified document assistant. Decide whether the request is informational or asks to change the document. Return JSON only. For questions use {\"kind\":\"answer\",\"answer\":\"...\"}. For requested changes use {\"kind\":\"edit_plan\",\"summary\":\"...\",\"operations\":[...]} using only the typed operations: replace_text(blockId,text), set_block_type(blockId,type), set_checked(blockId,checked), set_language(blockId,language), insert_block(afterBlockId,type,text), delete_block(blockId), set_title(text). Preserve existing block IDs, use at most 20 operations, and never invent IDs. If the user asks to add content, prepare an edit plan instead of claiming it was applied. The caller's access is authoritative; do not propose edits for viewers.",
+            'You are DocSync\'s unified document assistant. Decide whether the request is informational or asks to change the document. Return JSON only. For questions use {"kind":"answer","answer":"..."}. For requested changes use {"kind":"edit_plan","summary":"...","operations":[...]} using only the typed operations: replace_text(blockId,text), set_block_type(blockId,type), set_checked(blockId,checked), set_language(blockId,language), insert_block(afterBlockId,type,text), delete_block(blockId), set_title(text). Preserve existing block IDs, use at most 20 operations, and never invent IDs. If the user asks to add content, prepare an edit plan instead of claiming it was applied. The caller\'s access is authoritative; do not propose edits for viewers.',
         },
         {
           role: "user",
@@ -197,15 +214,31 @@ export async function chatGemini(
     choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
     error?: { message?: string };
   };
-  if (!response.ok) throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "classification");
+  if (!response.ok)
+    throw new GeminiProviderError(
+      body.error?.message ?? `Gemini request failed with HTTP ${response.status}`,
+      response.status,
+      "classification"
+    );
   const rawContent = body.choices?.[0]?.message?.content;
   const content = (typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join(""))?.trim();
-  if (!content) throw new GeminiProviderError("Gemini returned no conversational response (the provider may have filtered or truncated the response)", response.status, "classification");
+  if (!content)
+    throw new GeminiProviderError(
+      "Gemini returned no conversational response (the provider may have filtered or truncated the response)",
+      response.status,
+      "classification"
+    );
   const normalized = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const jsonCandidate = normalized.startsWith("{") ? normalized : normalized.match(/\{[\s\S]*\}/)?.[0];
   let parsed: { kind?: unknown; answer?: unknown; operations?: unknown; edits?: unknown; changes?: unknown };
   try {
-    parsed = JSON.parse(jsonCandidate ?? normalized) as { kind?: unknown; answer?: unknown; operations?: unknown; edits?: unknown; changes?: unknown };
+    parsed = JSON.parse(jsonCandidate ?? normalized) as {
+      kind?: unknown;
+      answer?: unknown;
+      operations?: unknown;
+      edits?: unknown;
+      changes?: unknown;
+    };
   } catch {
     throw new GeminiFormatError("Gemini returned non-JSON conversational content");
   }

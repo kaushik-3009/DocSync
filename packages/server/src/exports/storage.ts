@@ -21,11 +21,17 @@ export class PostgresExportStorage implements ExportStorage {
   constructor(private readonly pool: Pool) {}
 
   async save(exportId: string, pageId: string, file: Buffer): Promise<void> {
-    await this.pool.query("INSERT INTO exports (id, page_id, format, data) VALUES ($1, $2, 'pdf', $3)", [exportId, pageId, file.toString("base64")]);
+    await this.pool.query("INSERT INTO exports (id, page_id, format, data) VALUES ($1, $2, 'pdf', $3)", [
+      exportId,
+      pageId,
+      file.toString("base64"),
+    ]);
   }
 
   async locate(exportId: string): Promise<ExportLocation | null> {
-    const { rows } = await this.pool.query<{ page_id: string; data: string | null }>("SELECT page_id, data FROM exports WHERE id = $1", [exportId]);
+    const { rows } = await this.pool.query<{ page_id: string; data: string | null }>("SELECT page_id, data FROM exports WHERE id = $1", [
+      exportId,
+    ]);
     const row = rows[0];
     if (!row?.data) return null;
     return { pageId: row.page_id, body: Buffer.from(row.data, "base64") };
@@ -58,9 +64,10 @@ export class S3ExportStorage implements ExportStorage {
   }
 
   async locate(exportId: string): Promise<ExportLocation | null> {
-    const { rows } = await this.pool.query<{ page_id: string; storage_key: string | null }>("SELECT page_id, storage_key FROM exports WHERE id = $1", [
-      exportId,
-    ]);
+    const { rows } = await this.pool.query<{ page_id: string; storage_key: string | null }>(
+      "SELECT page_id, storage_key FROM exports WHERE id = $1",
+      [exportId]
+    );
     const row = rows[0];
     if (!row?.storage_key) return null;
     const redirectUrl = await getSignedUrl(this.s3 as S3Client, new GetObjectCommand({ Bucket: this.bucket, Key: row.storage_key }), {
@@ -72,7 +79,10 @@ export class S3ExportStorage implements ExportStorage {
 
 /** S3 when EXPORTS_S3_BUCKET is set (credentials come from the standard AWS
  *  provider chain — the ECS task role in AWS), inline Postgres otherwise. */
-export async function createExportStorage(pool: Pool, environment: Record<string, string | undefined> = process.env): Promise<ExportStorage> {
+export async function createExportStorage(
+  pool: Pool,
+  environment: Record<string, string | undefined> = process.env
+): Promise<ExportStorage> {
   const bucket = environment.EXPORTS_S3_BUCKET?.trim();
   if (!bucket) return new PostgresExportStorage(pool);
   const { S3Client } = await import("@aws-sdk/client-s3");

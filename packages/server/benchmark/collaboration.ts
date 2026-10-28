@@ -287,8 +287,7 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify({ token, pageId: config.pageId })}\n`);
       return;
     }
-    const wsUrlFor = (index: number) =>
-      `${config.wsBaseUrls[index % config.wsBaseUrls.length]}/ws/${config.pageId}`;
+    const wsUrlFor = (index: number) => `${config.wsBaseUrls[index % config.wsBaseUrls.length]}/ws/${config.pageId}`;
     const localIndices = Array.from({ length: config.clients }, (_, index) => index).filter(
       (index) => index % config.shardCount === config.shardIndex
     );
@@ -327,11 +326,7 @@ async function main(): Promise<void> {
       }
     }
     try {
-      await waitFor(
-        () => clients.every((client) => client.hasAll(mutationIds)),
-        config.propagationTimeoutMs,
-        "all clients to converge"
-      );
+      await waitFor(() => clients.every((client) => client.hasAll(mutationIds)), config.propagationTimeoutMs, "all clients to converge");
     } catch (err) {
       const partial = clients.map((client) => ({
         clientId: client.id,
@@ -349,7 +344,7 @@ async function main(): Promise<void> {
     const canonicalHashes = clients.map((client) =>
       createHash("sha256")
         .update(JSON.stringify([...client.doc.getMap<number>("benchmark-mutations").entries()].sort(([a], [b]) => a.localeCompare(b))))
-      .digest("hex")
+        .digest("hex")
     );
     // Each local client observes every mutation except its own.
     const expectedPeerObservations = clients.length * (mutationIds.length - config.operationsPerClient);
@@ -360,7 +355,11 @@ async function main(): Promise<void> {
       startedAt,
       finishedAt: new Date().toISOString(),
       settings: { ...config, token: undefined, output: relative(process.cwd(), config.output) },
-      connection: { successfulClients: clients.length, elapsedMs: connectionElapsedMs, errors: clients.reduce((sum, client) => sum + client.errorCount(), 0) },
+      connection: {
+        successfulClients: clients.length,
+        elapsedMs: connectionElapsedMs,
+        errors: clients.reduce((sum, client) => sum + client.errorCount(), 0),
+      },
       mutations: {
         sent: mutationIds.length,
         clientAcceptedUpdatesPerSecond: (mutationIds.length / Math.max(1, convergenceElapsedMs)) * 1000,
@@ -370,7 +369,12 @@ async function main(): Promise<void> {
         observationsComplete,
         observations,
         expectedPeerObservations,
-        propagationLatencyMs: { count: latencies.length, p50: percentile(latencies, 50), p95: percentile(latencies, 95), p99: percentile(latencies, 99) },
+        propagationLatencyMs: {
+          count: latencies.length,
+          p50: percentile(latencies, 50),
+          p95: percentile(latencies, 95),
+          p99: percentile(latencies, 99),
+        },
       },
       limitations: [
         "clientAcceptedUpdatesPerSecond measures updates generated and converged by the clients, not Postgres durable throughput.",
@@ -380,10 +384,14 @@ async function main(): Promise<void> {
     await mkdir(dirname(config.output), { recursive: true });
     await writeFile(config.output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
     if (!result.mutations.converged) throw new Error(`convergence failed; raw result: ${config.output}`);
-    process.stdout.write(`${JSON.stringify({ output: config.output, sent: mutationIds.length, p95Ms: result.mutations.propagationLatencyMs.p95 })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ output: config.output, sent: mutationIds.length, p95Ms: result.mutations.propagationLatencyMs.p95 })}\n`
+    );
   } catch (err) {
     await writeFailureArtifact(config, runStartedAt, phase, err).catch((artifactErr) => {
-      process.stderr.write(`failed to write benchmark failure artifact: ${artifactErr instanceof Error ? artifactErr.message : String(artifactErr)}\n`);
+      process.stderr.write(
+        `failed to write benchmark failure artifact: ${artifactErr instanceof Error ? artifactErr.message : String(artifactErr)}\n`
+      );
     });
     throw err;
   } finally {
@@ -392,6 +400,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
   process.exitCode = 1;
 });

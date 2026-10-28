@@ -17,10 +17,7 @@ describe("RoomRegistry", () => {
 
   it("shares one in-flight load for concurrent callers of a brand-new pageId", async () => {
     const registry = new RoomRegistry();
-    const [room1, room2] = await Promise.all([
-      registry.getOrCreateRoom("page-a"),
-      registry.getOrCreateRoom("page-a"),
-    ]);
+    const [room1, room2] = await Promise.all([registry.getOrCreateRoom("page-a"), registry.getOrCreateRoom("page-a")]);
     expect(room1).toBe(room2);
     expect(registry.activeRoomCount).toBe(1);
   });

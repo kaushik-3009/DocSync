@@ -26,9 +26,7 @@ export function getLocalUser(authUser?: AuthUser | null): { id: string; name: st
   if (cached) return JSON.parse(cached);
 
   const id = crypto.randomUUID();
-  const name = `${ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]} ${
-    ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
-  }`;
+  const name = `${ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]} ${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]}`;
   const user = { id, name, color: pickPresenceColor(id) };
   sessionStorage.setItem("collab-local-user", JSON.stringify(user));
   return user;

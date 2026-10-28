@@ -237,21 +237,30 @@ export function App() {
       .catch(() => {
         if (!cancelled) setDocumentsLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authRequired]);
 
   useEffect(() => {
     if (!authUser || authRequired !== true) return;
     let cancelled = false;
-    const refresh = () => fetchNotifications().then(({ notifications: next }) => {
-      if (!cancelled) setNotifications(next.filter((item) => item.type === "document_invitation" && !item.readAt));
-    }).catch(() => undefined);
+    const refresh = () =>
+      fetchNotifications()
+        .then(({ notifications: next }) => {
+          if (!cancelled) setNotifications(next.filter((item) => item.type === "document_invitation" && !item.readAt));
+        })
+        .catch(() => undefined);
     void refresh();
     const unsubscribe = subscribeToNotificationChanges(refresh);
     // Low-frequency fallback covers a temporary Redis/socket outage.
     const interval = setInterval(refresh, 30_000);
-    return () => { cancelled = true; unsubscribe(); clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      clearInterval(interval);
+    };
     // Keyed by identity: a refreshed token for the same user must not resubscribe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authRequired]);
@@ -278,7 +287,7 @@ export function App() {
   async function answerInvitation(notification: InvitationNotification, action: "accept" | "decline") {
     setRespondingInvitation(true);
     try {
-      const response = await respondToInvitation(notification.payload.invitationId, action) as { invitation: { documentId: string } };
+      const response = (await respondToInvitation(notification.payload.invitationId, action)) as { invitation: { documentId: string } };
       setNotifications((current) => current.filter((item) => item.id !== notification.id));
       if (action === "accept") {
         const refreshed = await fetchDocuments();
@@ -294,7 +303,7 @@ export function App() {
     if (!inviteToken) return;
     setRespondingInvitation(true);
     try {
-      const response = await respondToInvitationToken(inviteToken, action) as { invitation: { documentId: string } };
+      const response = (await respondToInvitationToken(inviteToken, action)) as { invitation: { documentId: string } };
       const url = new URL(window.location.href);
       url.searchParams.delete("invite");
       window.history.replaceState(null, "", url);
@@ -401,12 +410,23 @@ export function App() {
   }
 
   if (healthUnavailable) {
-    return <main className="connection-error" role="alert">Unable to reach Collab Workspace. Check the server connection and reload.</main>;
+    return (
+      <main className="connection-error" role="alert">
+        Unable to reach Collab Workspace. Check the server connection and reload.
+      </main>
+    );
   }
 
   return (
     <div className="page-shell">
-      <PageSidebar pages={documents} currentPageId={pageId} loading={documentsLoading} creating={creatingDocument} onSelect={joinPage} onNewPage={newPage} />
+      <PageSidebar
+        pages={documents}
+        currentPageId={pageId}
+        loading={documentsLoading}
+        creating={creatingDocument}
+        onSelect={joinPage}
+        onNewPage={newPage}
+      />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div className="doc-toolbar">
@@ -465,33 +485,37 @@ export function App() {
 
         <div className="doc-scroll">
           {!pageId ? (
-            <div className="workspace-empty"><h2>Your workspace is private</h2><p>Create a document or accept an invitation to begin.</p><button onClick={newPage}>Create a document</button></div>
-          ) : (
-          <div className="doc-page">
-            <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
-
-            <div className="doc-body">
-              {blocks.map((block) => (
-                <BlockRow
-                  key={block.id}
-                  block={block}
-                  depth={0}
-                  doc={doc}
-                  provider={provider}
-                  allPeers={peers}
-                  flatIds={flatIds}
-                  setCursor={setCursor}
-                  clearCursor={clearCursor}
-                  localUserName={localUser.name}
-                  addComment={addComment}
-                  onToggleResolved={toggleCommentResolved}
-                  onRemoveComment={removeComment}
-                mentionEmails={mentionEmails}
-                canEdit={canEdit}
-              />
-              ))}
+            <div className="workspace-empty">
+              <h2>Your workspace is private</h2>
+              <p>Create a document or accept an invitation to begin.</p>
+              <button onClick={newPage}>Create a document</button>
             </div>
-          </div>
+          ) : (
+            <div className="doc-page">
+              <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
+
+              <div className="doc-body">
+                {blocks.map((block) => (
+                  <BlockRow
+                    key={block.id}
+                    block={block}
+                    depth={0}
+                    doc={doc}
+                    provider={provider}
+                    allPeers={peers}
+                    flatIds={flatIds}
+                    setCursor={setCursor}
+                    clearCursor={clearCursor}
+                    localUserName={localUser.name}
+                    addComment={addComment}
+                    onToggleResolved={toggleCommentResolved}
+                    onRemoveComment={removeComment}
+                    mentionEmails={mentionEmails}
+                    canEdit={canEdit}
+                  />
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -507,12 +531,31 @@ export function App() {
       )}
       {showSearch && <SearchOverlay onNavigate={joinPage} onClose={() => setShowSearch(false)} />}
       {showLoginModal && <LoginScreen mandatory={false} onClose={() => setShowLoginModal(false)} />}
-      {showAssistant && pageId && <AssistantPanel pageId={pageId} blocks={blocks} title={getTitleText(doc).toString()} onClose={() => setShowAssistant(false)} />}
+      {showAssistant && pageId && (
+        <AssistantPanel pageId={pageId} blocks={blocks} title={getTitleText(doc).toString()} onClose={() => setShowAssistant(false)} />
+      )}
       <div className="notification-stack">
         {inviteToken && authUser && (
-          <div className="invitation-toast" role="status"><div>You have a document invitation.</div><div className="invitation-actions"><button onClick={() => answerInviteToken("accept")} disabled={respondingInvitation}>Accept</button><button className="is-secondary" onClick={() => answerInviteToken("decline")} disabled={respondingInvitation}>Decline</button></div></div>
+          <div className="invitation-toast" role="status">
+            <div>You have a document invitation.</div>
+            <div className="invitation-actions">
+              <button onClick={() => answerInviteToken("accept")} disabled={respondingInvitation}>
+                Accept
+              </button>
+              <button className="is-secondary" onClick={() => answerInviteToken("decline")} disabled={respondingInvitation}>
+                Decline
+              </button>
+            </div>
+          </div>
         )}
-        {notifications.map((notification) => <InvitationToast key={notification.id} notification={notification} pending={respondingInvitation} onRespond={(action) => answerInvitation(notification, action)} />)}
+        {notifications.map((notification) => (
+          <InvitationToast
+            key={notification.id}
+            notification={notification}
+            pending={respondingInvitation}
+            onRespond={(action) => answerInvitation(notification, action)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -563,9 +606,7 @@ function PageSidebar({
       <div className="sidebar-section-label">Documents</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", overflowY: "auto" }}>
         {!loading && pages.length === 0 && (
-          <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", padding: "0.4rem 0.5rem" }}>
-            None yet
-          </span>
+          <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", padding: "0.4rem 0.5rem" }}>None yet</span>
         )}
         {pages.map((page) => (
           <button
@@ -578,7 +619,8 @@ function PageSidebar({
               whiteSpace: "nowrap",
             }}
           >
-            <span>{page.title || "Untitled"}</span><small>{page.role}</small>
+            <span>{page.title || "Untitled"}</span>
+            <small>{page.role}</small>
           </button>
         ))}
       </div>
@@ -595,13 +637,7 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-function PresenceBar({
-  localUser,
-  peers,
-}: {
-  localUser: { id: string; name: string; color: string };
-  peers: PresenceState[];
-}) {
+function PresenceBar({ localUser, peers }: { localUser: { id: string; name: string; color: string }; peers: PresenceState[] }) {
   const activeCount = peers.length + 1;
   return (
     <div
@@ -611,12 +647,7 @@ function PresenceBar({
       title={`${activeCount} ${activeCount === 1 ? "person" : "people"} currently on this page`}
     >
       {peers.map((peer) => (
-        <span
-          key={peer.user.id}
-          className="presence-avatar"
-          style={{ background: peer.user.color }}
-          title={peer.user.name}
-        >
+        <span key={peer.user.id} className="presence-avatar" style={{ background: peer.user.color }} title={peer.user.name}>
           {initials(peer.user.name)}
         </span>
       ))}
@@ -773,12 +804,12 @@ function BlockRow({
 
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
           {block.type === "canvas" || block.type === "code" || !blockText ? null : (
-              <RichText
+            <RichText
               doc={doc}
               ytext={blockText}
               registryId={block.id}
-                placeholder={depth === 0 ? "Type '/' for commands" : undefined}
-                readOnly={!canEdit}
+              placeholder={depth === 0 ? "Type '/' for commands" : undefined}
+              readOnly={!canEdit}
               peerCursors={peerCursors}
               style={{
                 fontWeight: block.type === "heading" ? 700 : 400,
@@ -788,42 +819,44 @@ function BlockRow({
               }}
               onFocusOffset={(offset) => setCursor(block.id, offset)}
               onBlur={clearCursor}
-              onKeyDown={canEdit ? (e) => {
-                if (slashQuery !== null) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSlashHighlight((h) => Math.min(h + 1, Math.max(slashFiltered.length - 1, 0)));
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSlashHighlight((h) => Math.max(h - 1, 0));
-                    return;
-                  }
-                  if (e.key === "Enter" && slashFiltered.length > 0) {
-                    e.preventDefault();
-                    commitSlashCommand(slashFiltered[slashHighlight]?.type ?? slashFiltered[0].type);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setSlashDismissed(true);
-                    return;
-                  }
-                }
-                handleBlockKeyDown(e, {
-                  doc,
-                  blockId: block.id,
-                  container: e.currentTarget,
-                  prevBlockId,
-                  nextBlockId,
-                });
-              } : undefined}
+              onKeyDown={
+                canEdit
+                  ? (e) => {
+                      if (slashQuery !== null) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setSlashHighlight((h) => Math.min(h + 1, Math.max(slashFiltered.length - 1, 0)));
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setSlashHighlight((h) => Math.max(h - 1, 0));
+                          return;
+                        }
+                        if (e.key === "Enter" && slashFiltered.length > 0) {
+                          e.preventDefault();
+                          commitSlashCommand(slashFiltered[slashHighlight]?.type ?? slashFiltered[0].type);
+                          return;
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setSlashDismissed(true);
+                          return;
+                        }
+                      }
+                      handleBlockKeyDown(e, {
+                        doc,
+                        blockId: block.id,
+                        container: e.currentTarget,
+                        prevBlockId,
+                        nextBlockId,
+                      });
+                    }
+                  : undefined
+              }
             />
           )}
-          {canEdit && slashQuery !== null && (
-            <SlashMenu query={slashQuery} highlightIndex={slashHighlight} onSelect={commitSlashCommand} />
-          )}
+          {canEdit && slashQuery !== null && <SlashMenu query={slashQuery} highlightIndex={slashHighlight} onSelect={commitSlashCommand} />}
         </div>
       </div>
 
@@ -831,12 +864,25 @@ function BlockRow({
         <div
           style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}
           tabIndex={canEdit ? 0 : undefined}
-          onKeyDown={canEdit ? (event) => { if (event.key === "Enter") { event.preventDefault(); insertBlockBelow(); } } : undefined}
+          onKeyDown={
+            canEdit
+              ? (event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    insertBlockBelow();
+                  }
+                }
+              : undefined
+          }
         >
           <Suspense fallback={<div className="embed-card-loading">Loading canvas…</div>}>
             <CanvasBlock doc={doc} blockId={block.id} readOnly={!canEdit} />
           </Suspense>
-          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Click or press Enter to continue below</button>}
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Click or press Enter to continue below
+            </button>
+          )}
         </div>
       )}
       {block.type === "code" && (
@@ -852,7 +898,11 @@ function BlockRow({
               onExit={insertBlockBelow}
             />
           </Suspense>
-          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Continue with text below</button>}
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Continue with text below
+            </button>
+          )}
         </div>
       )}
       {showComments && (

@@ -14,7 +14,12 @@ export const systemRoutes: RoutePlugin = async (app, { deps }) => {
   // open port. Unauthenticated for the load balancer; exposes no secrets.
   app.get("/ready", { schema: { tags: ["system"], summary: "Readiness" } }, async (_request, reply) => {
     const [postgres, redis] = await Promise.all([
-      deps.pool ? deps.pool.query("SELECT 1").then(() => true, () => false) : Promise.resolve(false),
+      deps.pool
+        ? deps.pool.query("SELECT 1").then(
+            () => true,
+            () => false
+          )
+        : Promise.resolve(false),
       deps.pingRedis ? deps.pingRedis().catch(() => false) : Promise.resolve(false),
     ]);
     const ready = postgres && redis && Boolean(deps.pageStore) && Boolean(deps.jwtSecret);

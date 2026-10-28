@@ -50,14 +50,7 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
       <form className="auth-form" onSubmit={submit}>
         <label className="auth-field">
           <span>Email</span>
-          <input
-            type="email"
-            required
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-          />
+          <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
         </label>
         <label className="auth-field">
           <span>Password</span>

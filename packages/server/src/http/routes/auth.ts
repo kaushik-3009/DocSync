@@ -30,7 +30,8 @@ export const authRoutes: RoutePlugin = async (app, { deps, guards }) => {
 
   async function consume(limiter: Parameters<typeof tryConsume>[0], key: string, scope: string, message: string) {
     const { allowed, infraError } = await tryConsume(limiter, key);
-    if (infraError) app.log.error({ event: "rate_limiter_store_error", scope, err: infraError }, "rate limiter store unavailable — failing open");
+    if (infraError)
+      app.log.error({ event: "rate_limiter_store_error", scope, err: infraError }, "rate limiter store unavailable — failing open");
     if (!allowed) {
       rateLimitRejectionsTotal.inc({ scope });
       throw new HttpError(429, message);

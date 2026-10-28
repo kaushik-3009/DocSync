@@ -45,7 +45,12 @@ function valuesClause(rowCount: number, columnCount: number): string {
  * never collide or gap, and cost is five round trips per batch rather than per
  * update. Returns the sequence assigned to each entry, in order.
  */
-export async function appendOps(pool: Pool, pageId: string, entries: AppendEntry[], options: { enqueueFanout?: boolean } = {}): Promise<number[]> {
+export async function appendOps(
+  pool: Pool,
+  pageId: string,
+  entries: AppendEntry[],
+  options: { enqueueFanout?: boolean } = {}
+): Promise<number[]> {
   if (entries.length === 0) return [];
   const client = await pool.connect();
   try {
@@ -93,7 +98,14 @@ export async function appendOp(pool: Pool, pageId: string, update: Uint8Array, o
   const [seq] = await appendOps(
     pool,
     pageId,
-    [{ update, traceparent: options.traceparent, clientMutationId: options.clientMutationId, clientCreatedAtMs: options.clientCreatedAtMs }],
+    [
+      {
+        update,
+        traceparent: options.traceparent,
+        clientMutationId: options.clientMutationId,
+        clientCreatedAtMs: options.clientCreatedAtMs,
+      },
+    ],
     { enqueueFanout: options.enqueueFanout }
   );
   return seq!;

@@ -12,7 +12,8 @@ if (!output || inputs.length === 0) {
 const shards = inputs.map((path) => JSON.parse(readFileSync(path, "utf8")));
 const failed = shards.filter((shard) => shard.status !== "passed");
 const latencies = shards.flatMap((shard) => (shard.mutations?.observations ?? []).map((entry) => entry.latencyMs)).sort((a, b) => a - b);
-const percentile = (p) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil((p / 100) * latencies.length) - 1)] : null);
+const percentile = (p) =>
+  latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil((p / 100) * latencies.length) - 1)] : null;
 const hashes = new Set(shards.map((shard) => shard.mutations?.canonicalHash));
 const first = shards[0];
 
@@ -20,7 +21,10 @@ const merged = {
   schemaVersion: 1,
   status: failed.length === 0 && hashes.size === 1 && shards.every((shard) => shard.mutations?.converged) ? "passed" : "failed",
   startedAt: shards.map((shard) => shard.startedAt).sort()[0],
-  finishedAt: shards.map((shard) => shard.finishedAt).sort().at(-1),
+  finishedAt: shards
+    .map((shard) => shard.finishedAt)
+    .sort()
+    .at(-1),
   settings: { ...first.settings, shardIndex: undefined, startAtMs: undefined, output, shards: shards.length },
   connection: {
     successfulClients: shards.reduce((sum, shard) => sum + (shard.connection?.successfulClients ?? 0), 0),

@@ -101,17 +101,21 @@ export function CodeBlock({
         lineNumbers(),
         history(),
         EditorState.readOnly.of(readOnly),
-        Prec.high(keymap.of([{
-          key: "Enter",
-          run: (view) => {
-            const atEnd = view.state.selection.main.empty && view.state.selection.main.head === view.state.doc.length;
-            if (!readOnly && atEnd && view.state.doc.toString().endsWith("\n")) {
-              onExitRef.current?.();
-              return true;
-            }
-            return false;
-          },
-        }])),
+        Prec.high(
+          keymap.of([
+            {
+              key: "Enter",
+              run: (view) => {
+                const atEnd = view.state.selection.main.empty && view.state.selection.main.head === view.state.doc.length;
+                if (!readOnly && atEnd && view.state.doc.toString().endsWith("\n")) {
+                  onExitRef.current?.();
+                  return true;
+                }
+                return false;
+              },
+            },
+          ])
+        ),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         LANGUAGE_EXTENSIONS[language],

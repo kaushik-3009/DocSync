@@ -1,4 +1,10 @@
-import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes, type IRateLimiterOptions, type RateLimiterAbstract } from "rate-limiter-flexible";
+import {
+  RateLimiterMemory,
+  RateLimiterRedis,
+  RateLimiterRes,
+  type IRateLimiterOptions,
+  type RateLimiterAbstract,
+} from "rate-limiter-flexible";
 import type Redis from "ioredis";
 
 /**
@@ -11,9 +17,7 @@ import type Redis from "ioredis";
  * (Phase 3/4) and applied the same way here.
  */
 function makeLimiter(redis: Redis | null, opts: Omit<IRateLimiterOptions, "storeClient">): RateLimiterAbstract {
-  return redis
-    ? new RateLimiterRedis({ storeClient: redis, ...opts })
-    : new RateLimiterMemory(opts);
+  return redis ? new RateLimiterRedis({ storeClient: redis, ...opts }) : new RateLimiterMemory(opts);
 }
 
 /** Benchmark-only overrides are supplied by the isolated compose overlay, not
@@ -43,7 +47,10 @@ export function createRegisterLimiter(redis: Redis | null): RateLimiterAbstract 
 }
 
 /** General HTTP request limiting, keyed by IP (or userId when authenticated). */
-export function createHttpLimiter(redis: Redis | null, points = configuredPoints(process.env.HTTP_RATE_LIMIT_POINTS, 120)): RateLimiterAbstract {
+export function createHttpLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.HTTP_RATE_LIMIT_POINTS, 120)
+): RateLimiterAbstract {
   return makeLimiter(redis, { keyPrefix: "rl:http", points, duration: 60 });
 }
 
@@ -81,10 +88,7 @@ export function createWsMessageLimiter(): RateLimiterAbstract {
  * that tradeoff for a rate limiter, which exists to shed abusive load, not
  * to be a second point of failure for legitimate traffic.
  */
-export async function tryConsume(
-  limiter: RateLimiterAbstract,
-  key: string
-): Promise<{ allowed: boolean; infraError?: unknown }> {
+export async function tryConsume(limiter: RateLimiterAbstract, key: string): Promise<{ allowed: boolean; infraError?: unknown }> {
   try {
     await limiter.consume(key);
     return { allowed: true };

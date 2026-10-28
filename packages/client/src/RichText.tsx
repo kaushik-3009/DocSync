@@ -97,9 +97,7 @@ export function RichText({
   // render, specifically so it doesn't clobber an in-progress drag selection.
   const [docVersion, setDocVersion] = useState(0);
   const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
-  const [peerRects, setPeerRects] = useState<
-    Array<{ left: number; top: number; height: number; color: string; name: string }>
-  >([]);
+  const [peerRects, setPeerRects] = useState<Array<{ left: number; top: number; height: number; color: string; name: string }>>([]);
 
   useEffect(() => {
     const handler = () => setDocVersion((n) => n + 1);
@@ -286,7 +284,11 @@ export function RichText({
             aria-label="italic"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => toggleFormat("italic")}
-            style={{ fontStyle: "italic", background: activeItalic ? "var(--color-accent)" : undefined, color: activeItalic ? "white" : undefined }}
+            style={{
+              fontStyle: "italic",
+              background: activeItalic ? "var(--color-accent)" : undefined,
+              color: activeItalic ? "white" : undefined,
+            }}
           >
             I
           </button>

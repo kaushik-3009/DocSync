@@ -135,7 +135,10 @@ export class FanoutOutbox {
       if (failures > 0) {
         collabFanoutOutboxTotal.inc({ outcome: "failed" }, failures);
         const firstError = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
-        log.warn({ event: "outbox_fast_path_publish_failed", failures, err: firstError.reason }, "left committed updates for the outbox sweeper");
+        log.warn(
+          { event: "outbox_fast_path_publish_failed", failures, err: firstError.reason },
+          "left committed updates for the outbox sweeper"
+        );
       }
       if (delivered.length > 0) await this.markDelivered(delivered, null);
     })().catch((err) => {
@@ -168,7 +171,9 @@ export class FanoutOutbox {
     this.pollTimer = null;
     this.pruneTimer = null;
     const drainCompleted = await Promise.race([
-      Promise.allSettled([...this.inFlight]).then(() => this.drain()).then(() => true),
+      Promise.allSettled([...this.inFlight])
+        .then(() => this.drain())
+        .then(() => true),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), drainTimeoutMs).unref()),
     ]);
     if (!drainCompleted) {
@@ -214,7 +219,10 @@ export class FanoutOutbox {
           collabFanoutOutboxTotal.inc({ outcome: "delivered" }, delivered.length);
           await this.releaseForRetry(rows.slice(index), err);
           collabFanoutOutboxTotal.inc({ outcome: "failed" });
-          log.error({ event: "outbox_publish_failed", pageId: row.pageId, seq: row.seq, err }, "fanout publish failed; retained outbox rows for retry");
+          log.error(
+            { event: "outbox_publish_failed", pageId: row.pageId, seq: row.seq, err },
+            "fanout publish failed; retained outbox rows for retry"
+          );
           collabFanoutOutboxPending.set(await this.pendingCount());
           return;
         }

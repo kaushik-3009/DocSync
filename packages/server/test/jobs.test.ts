@@ -89,9 +89,7 @@ describe("processPreviewJob", () => {
     await seedPage("page-a", "a".repeat(300));
     await processPreviewJob(pool, pageStore, "page-a");
 
-    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", [
-      "page-a",
-    ]);
+    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", ["page-a"]);
     expect(result.rows[0].preview.length).toBe(201); // 200 chars + ellipsis
     expect(result.rows[0].preview.endsWith("…")).toBe(true);
 
@@ -103,9 +101,7 @@ describe("processPreviewJob", () => {
   it("does not truncate short content", async () => {
     await seedPage("page-a", "short text");
     await processPreviewJob(pool, pageStore, "page-a");
-    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", [
-      "page-a",
-    ]);
+    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", ["page-a"]);
     expect(result.rows[0].preview).toBe("short text");
   });
 });

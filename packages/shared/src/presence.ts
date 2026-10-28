@@ -17,16 +17,7 @@ export interface PresenceState {
   } | null;
 }
 
-export const PRESENCE_COLORS = [
-  "#e03131",
-  "#2f9e44",
-  "#1971c2",
-  "#f08c00",
-  "#9c36b5",
-  "#0c8599",
-  "#e8590c",
-  "#5c940d",
-] as const;
+export const PRESENCE_COLORS = ["#e03131", "#2f9e44", "#1971c2", "#f08c00", "#9c36b5", "#0c8599", "#e8590c", "#5c940d"] as const;
 
 export function pickPresenceColor(seed: string): string {
   let hash = 0;

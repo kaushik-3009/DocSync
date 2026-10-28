@@ -20,10 +20,10 @@ export interface FreshAssistantState {
 export async function loadFreshAssistantState(
   pageId: string,
   pageStore: Pick<PageStore, "currentSeq">,
-  registry: AssistantRoomRegistry,
+  registry: AssistantRoomRegistry
 ): Promise<FreshAssistantState> {
   const existingRoom = registry.peekRoom(pageId);
-  const room = existingRoom ?? await registry.getOrCreateRoom(pageId);
+  const room = existingRoom ?? (await registry.getOrCreateRoom(pageId));
   try {
     await room.flushDurableUpdates();
     await room.reconcileFromStore();

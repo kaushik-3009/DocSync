@@ -100,7 +100,9 @@ export function SharePanel({
             <h3 id="share-panel-title">Collaborators</h3>
             <p>Documents stay private until a recipient accepts an invitation.</p>
           </div>
-          <button type="button" aria-label="Close collaborators" className="share-panel-close" onClick={onClose}>×</button>
+          <button type="button" aria-label="Close collaborators" className="share-panel-close" onClick={onClose}>
+            ×
+          </button>
         </header>
 
         {loadError ? (
@@ -115,7 +117,8 @@ export function SharePanel({
               {roles.map((entry) => (
                 <li key={entry.userId}>
                   <span className="collaborator-email">
-                    {entry.email}{entry.userId === currentUser?.id ? " (you)" : ""}
+                    {entry.email}
+                    {entry.userId === currentUser?.id ? " (you)" : ""}
                   </span>
                   <span className="collaborator-meta">
                     <span className="collaborator-role">{entry.role}</span>
@@ -160,7 +163,10 @@ export function SharePanel({
                 </button>
               </div>
               {inviteMessage && (
-                <p className={`share-invite-message ${inviteState === "error" ? "is-error" : ""}`} role={inviteState === "error" ? "alert" : "status"}>
+                <p
+                  className={`share-invite-message ${inviteState === "error" ? "is-error" : ""}`}
+                  role={inviteState === "error" ? "alert" : "status"}
+                >
                   {inviteMessage}
                 </p>
               )}

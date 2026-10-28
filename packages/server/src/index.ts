@@ -162,14 +162,23 @@ async function shutdown(): Promise<void> {
   ]);
   logger.info({ event: "room_shutdown_drain", completed: roomDrainCompleted }, "room update drain finished");
   const outboxDrained = await fanoutOutbox?.close();
-  if (outboxDrained !== undefined) logger.info({ event: "outbox_shutdown_drain", completed: outboxDrained }, "fanout outbox drain finished");
+  if (outboxDrained !== undefined)
+    logger.info({ event: "outbox_shutdown_drain", completed: outboxDrained }, "fanout outbox drain finished");
   registry.destroyAll();
   await stopWorkers?.();
   await jobQueues?.close();
   await notificationGateway?.close();
   await shutdownTracing();
   await Promise.all(
-    [httpClosed, pool?.end(), broadcasterPub?.quit(), broadcasterSub?.quit(), notificationSub?.quit(), jobsConnection?.quit(), rateLimitRedis?.quit()].map((p) =>
+    [
+      httpClosed,
+      pool?.end(),
+      broadcasterPub?.quit(),
+      broadcasterSub?.quit(),
+      notificationSub?.quit(),
+      jobsConnection?.quit(),
+      rateLimitRedis?.quit(),
+    ].map((p) =>
       p?.catch((err) => logger.error({ event: "shutdown_resource_close_failed", err }, "failed to close a resource during shutdown"))
     )
   );

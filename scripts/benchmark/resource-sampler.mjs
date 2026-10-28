@@ -31,15 +31,35 @@ if (summarizeFile) {
   process.exit(0);
 }
 
-if (!runId || !Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 3600 || !Number.isFinite(intervalSeconds) || intervalSeconds <= 0 || intervalSeconds > 60) {
-  console.error("usage: resource-sampler.mjs --run-id <id> [--duration-seconds 60] [--interval-seconds 5] [--output-dir artifacts/benchmarks/<id>]");
+if (
+  !runId ||
+  !Number.isFinite(durationSeconds) ||
+  durationSeconds <= 0 ||
+  durationSeconds > 3600 ||
+  !Number.isFinite(intervalSeconds) ||
+  intervalSeconds <= 0 ||
+  intervalSeconds > 60
+) {
+  console.error(
+    "usage: resource-sampler.mjs --run-id <id> [--duration-seconds 60] [--interval-seconds 5] [--output-dir artifacts/benchmarks/<id>]"
+  );
   process.exit(64);
 }
 
 fs.mkdirSync(outputDir, { recursive: true });
 const samplesFile = path.join(outputDir, "resource-samples.jsonl");
 fs.writeFileSync(samplesFile, "");
-const compose = ["compose", "--project-name", project, "--env-file", envFile, "-f", "docker-compose.yml", "-f", "docker-compose.benchmark.yml"];
+const compose = [
+  "compose",
+  "--project-name",
+  project,
+  "--env-file",
+  envFile,
+  "-f",
+  "docker-compose.yml",
+  "-f",
+  "docker-compose.benchmark.yml",
+];
 const envValues = readEnvFile(envFile);
 const startedAt = new Date().toISOString();
 const startedMs = Date.now();
@@ -55,16 +75,29 @@ while (Date.now() - startedMs < durationSeconds * 1000) {
 }
 
 const summaryPath = path.join(outputDir, "resource-summary.json");
-writeSummary(samplesFile, { runId, startedAt, endedAt: new Date().toISOString(), durationSeconds, intervalSeconds, samplesFile: path.relative(process.cwd(), samplesFile), summaryPath: path.relative(process.cwd(), summaryPath) });
+writeSummary(samplesFile, {
+  runId,
+  startedAt,
+  endedAt: new Date().toISOString(),
+  durationSeconds,
+  intervalSeconds,
+  samplesFile: path.relative(process.cwd(), samplesFile),
+  summaryPath: path.relative(process.cwd(), summaryPath),
+});
 console.log(JSON.stringify({ event: "resource_sampler_finished", runId, sampleCount, summaryPath }));
 
 function readEnvFile(file) {
   try {
-    return Object.fromEntries(fs.readFileSync(file, "utf8").split(/\r?\n/).flatMap((line) => {
-      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
-      if (!match) return [];
-      return [[match[1], match[2].replace(/^(['"])(.*)\1$/, "$2")]];
-    }));
+    return Object.fromEntries(
+      fs
+        .readFileSync(file, "utf8")
+        .split(/\r?\n/)
+        .flatMap((line) => {
+          const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+          if (!match) return [];
+          return [[match[1], match[2].replace(/^(['"])(.*)\1$/, "$2")]];
+        })
+    );
   } catch {
     return {};
   }
@@ -87,12 +120,22 @@ function collectSample() {
 
   const stats = safeDocker(["stats", "--no-stream", "--format", "json"]);
   if (stats.error) sample.errors.push({ source: "docker-stats", error: stats.error });
-  sample.dockerStats = stats.value.split(/\r?\n/).filter(Boolean).flatMap((line) => {
-    try { return [JSON.parse(line)]; } catch { return []; }
-  });
+  sample.dockerStats = stats.value
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
 
   for (const service of ["server-a", "server-b"]) {
-    const metrics = safeDocker(["exec", "-T", service, "node", "-e", "fetch('http://127.0.0.1:1234/metrics').then(r => r.text()).then(console.log)"], 3000);
+    const metrics = safeDocker(
+      ["exec", "-T", service, "node", "-e", "fetch('http://127.0.0.1:1234/metrics').then(r => r.text()).then(console.log)"],
+      3000
+    );
     if (metrics.error) sample.errors.push({ source: `${service}-metrics`, error: metrics.error });
     sample.gateways[service] = parsePrometheus(metrics.value);
   }
@@ -100,20 +143,28 @@ function collectSample() {
   const pgUser = envValues.POSTGRES_USER || "collab";
   const pgDb = envValues.POSTGRES_DB || "collab";
   const pgPassword = envValues.POSTGRES_PASSWORD || "";
-  const pgQuery = "SELECT datname,numbackends,xact_commit,xact_rollback,blks_read,blks_hit,tup_inserted,tup_updated,tup_deleted FROM pg_stat_database WHERE datname=current_database();";
-  const postgres = safeDocker(["exec", "-T", "-e", `PGPASSWORD=${pgPassword}`, "postgres", "psql", "-U", pgUser, "-d", pgDb, "-At", "-F", "|", "-c", pgQuery], 3000);
+  const pgQuery =
+    "SELECT datname,numbackends,xact_commit,xact_rollback,blks_read,blks_hit,tup_inserted,tup_updated,tup_deleted FROM pg_stat_database WHERE datname=current_database();";
+  const postgres = safeDocker(
+    ["exec", "-T", "-e", `PGPASSWORD=${pgPassword}`, "postgres", "psql", "-U", pgUser, "-d", pgDb, "-At", "-F", "|", "-c", pgQuery],
+    3000
+  );
   if (postgres.error) sample.errors.push({ source: "postgres", error: postgres.error });
   sample.postgres = parsePostgres(postgres.value);
 
   const redisPassword = envValues.REDIS_PASSWORD || "";
-  const redis = safeDocker(["exec", "-T", "-e", `REDISCLI_AUTH=${redisPassword}`, "redis", "redis-cli", "INFO", "memory", "INFO", "stats", "INFO", "clients"], 3000);
+  const redis = safeDocker(
+    ["exec", "-T", "-e", `REDISCLI_AUTH=${redisPassword}`, "redis", "redis-cli", "INFO", "memory", "INFO", "stats", "INFO", "clients"],
+    3000
+  );
   if (redis.error) sample.errors.push({ source: "redis", error: redis.error });
   sample.redis = parseRedis(redis.value);
   return sample;
 }
 
 function parsePrometheus(text) {
-  const wanted = /^(ws_connections_active|ws_connections_total|collab_updates_pending|collab_fanout_outbox_pending|process_resident_memory_bytes|process_cpu_user_seconds_total|process_cpu_system_seconds_total|collab_updates_total|collab_fanout_outbox_total)\b/;
+  const wanted =
+    /^(ws_connections_active|ws_connections_total|collab_updates_pending|collab_fanout_outbox_pending|process_resident_memory_bytes|process_cpu_user_seconds_total|process_cpu_system_seconds_total|collab_updates_total|collab_fanout_outbox_total)\b/;
   const result = {};
   for (const line of text.split(/\r?\n/)) {
     const match = line.match(/^([^ ]+)\s+([-+0-9.eE]+)$/);
@@ -127,7 +178,17 @@ function parsePostgres(text) {
   const row = text.split(/\r?\n/).find(Boolean);
   if (!row) return null;
   const fields = row.split("|");
-  const names = ["datname", "numbackends", "xact_commit", "xact_rollback", "blks_read", "blks_hit", "tup_inserted", "tup_updated", "tup_deleted"];
+  const names = [
+    "datname",
+    "numbackends",
+    "xact_commit",
+    "xact_rollback",
+    "blks_read",
+    "blks_hit",
+    "tup_inserted",
+    "tup_updated",
+    "tup_deleted",
+  ];
   return Object.fromEntries(names.map((name, index) => [name, index === 0 ? fields[index] : Number(fields[index] || 0)]));
 }
 
@@ -158,7 +219,8 @@ function parseMemoryMiB(value) {
 
 function serviceName(record) {
   const name = String(record.Name || record.name || "");
-  for (const service of ["server-a", "server-b", "postgres", "redis", "worker", "lb"]) if (name.includes(`-${service}-`) || name.includes(`_${service}_`)) return service;
+  for (const service of ["server-a", "server-b", "postgres", "redis", "worker", "lb"])
+    if (name.includes(`-${service}-`) || name.includes(`_${service}_`)) return service;
   return name || "unknown";
 }
 
@@ -173,12 +235,24 @@ function quantile(values, q) {
 
 function stats(values, unit) {
   const valid = values.filter(Number.isFinite);
-  return { unit, count: valid.length, p50: quantile(valid, 0.5), p95: quantile(valid, 0.95), max: valid.length ? Math.max(...valid) : null };
+  return {
+    unit,
+    count: valid.length,
+    p50: quantile(valid, 0.5),
+    p95: quantile(valid, 0.95),
+    max: valid.length ? Math.max(...valid) : null,
+  };
 }
 
 function writeSummary(file, metadata = {}) {
   const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean) : [];
-  const samples = lines.flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+  const samples = lines.flatMap((line) => {
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      return [];
+    }
+  });
   const services = {};
   const errors = [];
   const gateways = {};
@@ -195,22 +269,32 @@ function writeSummary(file, metadata = {}) {
     if (sample.postgres) postgres.push(sample.postgres);
     if (sample.redis) redis.push(sample.redis);
   }
-  const resources = Object.fromEntries(Object.entries(services).map(([service, values]) => [service, { cpuPercent: stats(values.cpuPercent, "%"), memoryMiB: stats(values.memoryMiB, "MiB") }]));
+  const resources = Object.fromEntries(
+    Object.entries(services).map(([service, values]) => [
+      service,
+      { cpuPercent: stats(values.cpuPercent, "%"), memoryMiB: stats(values.memoryMiB, "MiB") },
+    ])
+  );
   const summary = {
     schemaVersion: 1,
     ...metadata,
     sampleCount: samples.length,
     errorCount: errors.length,
     resources,
-    gatewayMetricSamples: Object.fromEntries(Object.entries(gateways).map(([service, values]) => [service, { sampleCount: values.length, first: values[0] || null, last: values.at(-1) || null }])),
+    gatewayMetricSamples: Object.fromEntries(
+      Object.entries(gateways).map(([service, values]) => [
+        service,
+        { sampleCount: values.length, first: values[0] || null, last: values.at(-1) || null },
+      ])
+    ),
     postgres: { sampleCount: postgres.length, first: postgres[0] || null, last: postgres.at(-1) || null },
     redis: { sampleCount: redis.length, first: redis[0] || null, last: redis.at(-1) || null },
     limitations: [
       "CPU and memory are Docker point-in-time samples on the local host, summarized only for observed containers; they are not sustained capacity limits or cloud-service utilization.",
       "PostgreSQL pg_stat_database and Redis INFO values are cumulative/point-in-time counters. Rates require comparing first and last samples and are not inferred here.",
       "Gateway /metrics captures selected counters and gauges only; histograms are not aggregated and no request-level trace latency is derived.",
-      "A run with zero samples, missing services, or collection errors is incomplete evidence. This artifact does not prove uptime, cost, failover behavior, or production SLOs."
-    ]
+      "A run with zero samples, missing services, or collection errors is incomplete evidence. This artifact does not prove uptime, cost, failover behavior, or production SLOs.",
+    ],
   };
   if (file.endsWith("resource-samples.jsonl")) {
     const target = path.join(path.dirname(file), "resource-summary.json");
@@ -220,4 +304,6 @@ function writeSummary(file, metadata = {}) {
   }
 }
 
-function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

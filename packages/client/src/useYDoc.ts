@@ -277,10 +277,7 @@ export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = tr
     [doc, localUser]
   );
 
-  const toggleCommentResolved = useCallback(
-    (commentId: string, resolved: boolean) => setCommentResolved(doc, commentId, resolved),
-    [doc]
-  );
+  const toggleCommentResolved = useCallback((commentId: string, resolved: boolean) => setCommentResolved(doc, commentId, resolved), [doc]);
 
   const removeComment = useCallback((commentId: string) => deleteComment(doc, commentId), [doc]);
 

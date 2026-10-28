@@ -33,7 +33,9 @@ export class RoomRegistry {
     this.pageStore = dependencies.pageStore ?? null;
     this.broadcaster = dependencies.broadcaster ?? null;
     this.broadcaster?.setReconnectHandler?.(() => {
-      void this.reconcileAllRooms().catch((err) => log.error({ event: "redis_reconnect_reconcile_failed", err }, "failed to reconcile rooms after Redis reconnect"));
+      void this.reconcileAllRooms().catch((err) =>
+        log.error({ event: "redis_reconnect_reconcile_failed", err }, "failed to reconcile rooms after Redis reconnect")
+      );
     });
   }
 

@@ -4,7 +4,10 @@ import { recordAudit } from "../../auth/audit.js";
 import { HttpError } from "../guards.js";
 import { bearer, pageIdSchema, pageParams, type RoutePlugin } from "./types.js";
 
-const idSchema = z.string().regex(/^[A-Za-z0-9_-]+$/).max(128);
+const idSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]+$/)
+  .max(128);
 
 export const exportRoutes: RoutePlugin = async (app, { deps, guards }) => {
   function jobQueues() {
@@ -39,21 +42,25 @@ export const exportRoutes: RoutePlugin = async (app, { deps, guards }) => {
 
   // Authenticates before the lookup so unauthenticated callers can't probe
   // which export ids exist; a page the caller can't read answers 404 too.
-  app.get("/exports/:exportId", { schema: { tags: ["exports"], security: bearer, params: z.object({ exportId: idSchema }) } }, async (request, reply) => {
-    if (!deps.exportStorage) throw new HttpError(503, "exports require DATABASE_URL");
-    const user = guards.currentUser(request);
-    const location = await deps.exportStorage.locate(request.params.exportId);
-    if (!location) throw new HttpError(404, "no such export");
-    if (user && !(await getExistingRole(guards.pool(), location.pageId, user.userId))) throw new HttpError(404, "no such export");
-    if ("redirectUrl" in location) {
-      // Browser fetch() clients ask for JSON and navigate themselves, which
-      // keeps their Authorization header away from the object store.
-      if (request.headers.accept?.includes("application/json")) return { downloadUrl: location.redirectUrl };
-      return reply.redirect(location.redirectUrl, 302);
+  app.get(
+    "/exports/:exportId",
+    { schema: { tags: ["exports"], security: bearer, params: z.object({ exportId: idSchema }) } },
+    async (request, reply) => {
+      if (!deps.exportStorage) throw new HttpError(503, "exports require DATABASE_URL");
+      const user = guards.currentUser(request);
+      const location = await deps.exportStorage.locate(request.params.exportId);
+      if (!location) throw new HttpError(404, "no such export");
+      if (user && !(await getExistingRole(guards.pool(), location.pageId, user.userId))) throw new HttpError(404, "no such export");
+      if ("redirectUrl" in location) {
+        // Browser fetch() clients ask for JSON and navigate themselves, which
+        // keeps their Authorization header away from the object store.
+        if (request.headers.accept?.includes("application/json")) return { downloadUrl: location.redirectUrl };
+        return reply.redirect(location.redirectUrl, 302);
+      }
+      return reply
+        .header("content-type", "application/pdf")
+        .header("content-disposition", `attachment; filename="${location.pageId}.pdf"`)
+        .send(location.body);
     }
-    return reply
-      .header("content-type", "application/pdf")
-      .header("content-disposition", `attachment; filename="${location.pageId}.pdf"`)
-      .send(location.body);
-  });
+  );
 };

@@ -164,10 +164,7 @@ export class Room {
   private readonly pendingMutationMetadata = new Map<WebSocket, ClientMutationMetadata>();
   private shuttingDown = false;
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
-  private readonly onAwarenessUpdate: (
-    changes: { added: number[]; updated: number[]; removed: number[] },
-    origin: unknown
-  ) => void;
+  private readonly onAwarenessUpdate: (changes: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => void;
 
   constructor(pageId: string, initialDoc: Y.Doc, initialSeq: number, dependencies: RoomDependencies = {}) {
     this.pageId = pageId;
@@ -370,10 +367,7 @@ export class Room {
     if (this.awareness.getStates().size > 0) {
       const awarenessEncoder = encoding.createEncoder();
       encoding.writeVarUint(awarenessEncoder, MessageType.Awareness);
-      encoding.writeVarUint8Array(
-        awarenessEncoder,
-        encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys()))
-      );
+      encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys())));
       ws.send(encoding.toUint8Array(awarenessEncoder));
     }
   }
@@ -493,10 +487,7 @@ export class Room {
         syncProtocol.readSyncStep1(decoder, encoder, this.doc);
         if (encoding.length(encoder) > 1) ws.send(encoding.toUint8Array(encoder));
       } else {
-        this.log.warn(
-          { event: "viewer_write_rejected", pageId: this.pageId },
-          "dropped mutating sync message from a viewer connection"
-        );
+        this.log.warn({ event: "viewer_write_rejected", pageId: this.pageId }, "dropped mutating sync message from a viewer connection");
       }
       return;
     }
@@ -542,10 +533,7 @@ export class Room {
         source.close(4403, "page mutation permission revoked");
         return;
       }
-      this.log.error(
-        { event: "persist_before_apply_failed", err },
-        "rejected update because it did not commit; closing source for replay"
-      );
+      this.log.error({ event: "persist_before_apply_failed", err }, "rejected update because it did not commit; closing source for replay");
       source.close(1011, "update was not persisted; reconnect to replay");
     });
   }
@@ -563,7 +551,10 @@ export class Room {
     return this.admit({ update, alreadyAppliedOrigin: { origin } }).then(
       () => undefined,
       (err) => {
-        this.log.error({ event: "persist_after_server_mutation_failed", err }, "server-side update was not published because it did not commit");
+        this.log.error(
+          { event: "persist_after_server_mutation_failed", err },
+          "server-side update was not published because it did not commit"
+        );
       }
     );
   }
@@ -649,17 +640,19 @@ export class Room {
     const pageStore = this.pageStore;
     let seqs: number[];
     try {
-      seqs = await context.with(trace.setSpan(accepted[0]!.traceContext, span), () => pageStore.recordUpdates(
-        this.pageId,
-        accepted.map((mutation) => ({
-          update: mutation.update,
-          traceparent: this.fanoutOutbox ? mutation.traceparent : undefined,
-          clientMutationId: mutation.metadata?.mutationId,
-          clientCreatedAtMs: mutation.metadata?.createdAtMs,
-        })),
-        () => this.stateAfterApplying(accepted.filter((mutation) => !mutation.alreadyAppliedOrigin).map((mutation) => mutation.update)),
-        { enqueueFanout: this.fanoutOutbox !== null }
-      ));
+      seqs = await context.with(trace.setSpan(accepted[0]!.traceContext, span), () =>
+        pageStore.recordUpdates(
+          this.pageId,
+          accepted.map((mutation) => ({
+            update: mutation.update,
+            traceparent: this.fanoutOutbox ? mutation.traceparent : undefined,
+            clientMutationId: mutation.metadata?.mutationId,
+            clientCreatedAtMs: mutation.metadata?.createdAtMs,
+          })),
+          () => this.stateAfterApplying(accepted.filter((mutation) => !mutation.alreadyAppliedOrigin).map((mutation) => mutation.update)),
+          { enqueueFanout: this.fanoutOutbox !== null }
+        )
+      );
     } catch (err) {
       span.recordException(err as Error);
       span.end();

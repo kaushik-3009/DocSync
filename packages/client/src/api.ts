@@ -82,17 +82,11 @@ export function fetchVersions(pageId: string): Promise<{ pageId: string; version
   }));
 }
 
-export function fetchVersionAt(
-  pageId: string,
-  seq: number
-): Promise<{ pageId: string; seq: number; blocks: SerializedBlockWithDelta[] }> {
+export function fetchVersionAt(pageId: string, seq: number): Promise<{ pageId: string; seq: number; blocks: SerializedBlockWithDelta[] }> {
   return apiFetch(`/pages/${pageId}/versions/${seq}`);
 }
 
-export function restoreVersion(
-  pageId: string,
-  seq: number
-): Promise<{ pageId: string; restoredSeq: number; blocks: SerializedBlock[] }> {
+export function restoreVersion(pageId: string, seq: number): Promise<{ pageId: string; restoredSeq: number; blocks: SerializedBlock[] }> {
   return apiFetch(`/pages/${pageId}/versions/${seq}/restore`, { method: "POST" });
 }
 
@@ -225,7 +219,13 @@ export function grantPageRole(
   pageId: string,
   email: string,
   role: Exclude<PageRole["role"], "owner">
-): Promise<{ pageId: string; granteeEmail: string; role: "editor" | "viewer"; invitationId: string; emailStatus: "sent" | "skipped" | "failed" }> {
+): Promise<{
+  pageId: string;
+  granteeEmail: string;
+  role: "editor" | "viewer";
+  invitationId: string;
+  emailStatus: "sent" | "skipped" | "failed";
+}> {
   return postJson(`/pages/${pageId}/roles`, { email, role });
 }
 

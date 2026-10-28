@@ -71,12 +71,7 @@ function createBlockMap(init: BlockFieldsInit, presetText?: Y.Text): Y.Map<unkno
 }
 
 /** Creates a block's Y.Map and appends it to the root order, inside one transaction. */
-export function createBlock(
-  doc: Y.Doc,
-  blockId: string,
-  init: BlockFieldsInit,
-  index?: number
-): void {
+export function createBlock(doc: Y.Doc, blockId: string, init: BlockFieldsInit, index?: number): void {
   doc.transact(() => {
     getBlocksMap(doc).set(blockId, createBlockMap(init));
 
@@ -252,10 +247,7 @@ export function insertBlockAfter(doc: Y.Doc, afterBlockId: string, newBlockId: s
  * surviving block's id and the character offset the content was joined at
  * (so the caller can place the caret there), or null if this was a no-op.
  */
-export function mergeBlockIntoPrevious(
-  doc: Y.Doc,
-  blockId: string
-): { survivingBlockId: string; joinOffset: number } | null {
+export function mergeBlockIntoPrevious(doc: Y.Doc, blockId: string): { survivingBlockId: string; joinOffset: number } | null {
   const loc = findLocation(doc, blockId);
   if (!loc || loc.index === 0) return null;
 

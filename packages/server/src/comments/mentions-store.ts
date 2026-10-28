@@ -50,7 +50,10 @@ export class MentionsStore {
             );
           }
         } catch (err) {
-          log.error({ event: "record_mentions_failed", pageId: params.pageId, commentId: params.commentId, err }, "failed to record mentions");
+          log.error(
+            { event: "record_mentions_failed", pageId: params.pageId, commentId: params.commentId, err },
+            "failed to record mentions"
+          );
         } finally {
           span.end();
         }

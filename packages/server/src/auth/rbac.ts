@@ -4,10 +4,7 @@ import type { Role } from "@collab/shared";
 /** Plain lookup with no side effects. Document creation is the only operation
  * that establishes ownership; reads and WebSocket connections never grant it. */
 export async function getExistingRole(pool: Pool, pageId: string, userId: string): Promise<Role | null> {
-  const result = await pool.query<{ role: Role }>("SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2", [
-    pageId,
-    userId,
-  ]);
+  const result = await pool.query<{ role: Role }>("SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2", [pageId, userId]);
   return result.rows[0]?.role ?? null;
 }
 
@@ -57,13 +54,7 @@ export class OwnerRoleGrantNotAllowedError extends Error {
 }
 
 /** Grants (or updates) editor/viewer access for a page. Ownership is immutable after document creation. */
-export async function grantRole(
-  pool: Pool,
-  pageId: string,
-  granterId: string,
-  granteeUserId: string,
-  role: Role
-): Promise<void> {
+export async function grantRole(pool: Pool, pageId: string, granterId: string, granteeUserId: string, role: Role): Promise<void> {
   if (role === "owner") throw new OwnerRoleGrantNotAllowedError(pageId);
 
   const granterRole = await getExistingRole(pool, pageId, granterId);

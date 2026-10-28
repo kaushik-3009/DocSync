@@ -38,7 +38,12 @@ export function traced<T>(name: string, traceparent: string | undefined, fn: () 
  * infra change (a second container running this same function), not a code
  * change to Room, the queues, or the processors.
  */
-export function startWorkers(connection: Redis, pool: Pool, pageStore: PageStore, exportStorage: ExportStorage): { close(): Promise<void> } {
+export function startWorkers(
+  connection: Redis,
+  pool: Pool,
+  pageStore: PageStore,
+  exportStorage: ExportStorage
+): { close(): Promise<void> } {
   const searchIndexWorker = new Worker<SearchIndexJobData>(
     SEARCH_INDEX_QUEUE,
     async (job) => traced("job.process.search_index", job.data.traceparent, () => processSearchIndexJob(pool, pageStore, job.data.pageId)),
@@ -51,7 +56,8 @@ export function startWorkers(connection: Redis, pool: Pool, pageStore: PageStore
   );
   const pdfExportWorker = new Worker<PdfExportJobData>(
     PDF_EXPORT_QUEUE,
-    async (job) => traced("job.process.pdf_export", job.data.traceparent, () => processPdfExportJob(exportStorage, pageStore, job.data.pageId)),
+    async (job) =>
+      traced("job.process.pdf_export", job.data.traceparent, () => processPdfExportJob(exportStorage, pageStore, job.data.pageId)),
     { connection }
   );
 

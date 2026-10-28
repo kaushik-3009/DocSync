@@ -10,10 +10,17 @@ describe("Gemini editing agent boundary", () => {
       operations: [{ op: "set_title", text: "Short title" }],
     });
     expect(() => parseAgentPlan('{"summary":"bad","operations":[{"op":"run_code","source":"rm -rf"}]}')).toThrow("unsupported");
-    expect(parseAgentPlan(JSON.stringify({ message: "Add two blocks", edits: [
-      { action: "add_block", blockType: "code", content: "print(\\\"Hello, world!\\\")" },
-      { action: "insert", type: "paragraph", text: "A short essay follows." },
-    ]})).operations).toHaveLength(2);
+    expect(
+      parseAgentPlan(
+        JSON.stringify({
+          message: "Add two blocks",
+          edits: [
+            { action: "add_block", blockType: "code", content: 'print(\\"Hello, world!\\")' },
+            { action: "insert", type: "paragraph", text: "A short essay follows." },
+          ],
+        })
+      ).operations
+    ).toHaveLength(2);
   });
 
   it("applies validated edits to a detached Yjs document", () => {

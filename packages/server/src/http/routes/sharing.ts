@@ -33,7 +33,9 @@ export const sharingRoutes: RoutePlugin = async (app, { deps, guards }) => {
       const user = guards.signedInUser(request);
       const pool = guards.pool();
       const status = request.params.action === "accept" ? "accepted" : "declined";
-      const invitation = await asConflict(respondToInvitation(pool, request.params.invitationId, { id: user.userId, email: user.email }, status));
+      const invitation = await asConflict(
+        respondToInvitation(pool, request.params.invitationId, { id: user.userId, email: user.email }, status)
+      );
       recordAudit(pool, { userId: user.userId, pageId: invitation.documentId, event: `invitation_${invitation.status}` });
       return { invitation };
     }
@@ -41,11 +43,19 @@ export const sharingRoutes: RoutePlugin = async (app, { deps, guards }) => {
 
   app.post(
     "/invitations/respond",
-    { schema: { tags: ["sharing"], security: bearer, body: z.object({ token: z.string().min(1).max(256), action: z.enum(["accept", "decline"]) }) } },
+    {
+      schema: {
+        tags: ["sharing"],
+        security: bearer,
+        body: z.object({ token: z.string().min(1).max(256), action: z.enum(["accept", "decline"]) }),
+      },
+    },
     async (request) => {
       const user = guards.signedInUser(request);
       const status = request.body.action === "accept" ? "accepted" : "declined";
-      const invitation = await asConflict(respondToInvitationToken(guards.pool(), request.body.token, { id: user.userId, email: user.email }, status));
+      const invitation = await asConflict(
+        respondToInvitationToken(guards.pool(), request.body.token, { id: user.userId, email: user.email }, status)
+      );
       return { invitation };
     }
   );
@@ -68,7 +78,8 @@ export const sharingRoutes: RoutePlugin = async (app, { deps, guards }) => {
       await guards.pageRole(request, pageId, "owner", "only an owner can grant roles");
       const granteeEmail = request.body.email.toLowerCase();
       const invitation = await createInvitation(pool, pageId, user.userId, granteeEmail, request.body.role).catch((err) => {
-        if (err instanceof NotOwnerError || (err instanceof Error && err.message.startsWith("only the document owner"))) throw new HttpError(403, err.message);
+        if (err instanceof NotOwnerError || (err instanceof Error && err.message.startsWith("only the document owner")))
+          throw new HttpError(403, err.message);
         throw err;
       });
       const emailStatus = await deliverInvitationEmail(
@@ -77,7 +88,12 @@ export const sharingRoutes: RoutePlugin = async (app, { deps, guards }) => {
         invitation
       );
       if (invitation.notifyUserId) await deps.notifyUser(invitation.notifyUserId);
-      recordAudit(pool, { userId: user.userId, pageId, event: "invitation_created", metadata: { granteeEmail, role: request.body.role, emailStatus } });
+      recordAudit(pool, {
+        userId: user.userId,
+        pageId,
+        event: "invitation_created",
+        metadata: { granteeEmail, role: request.body.role, emailStatus },
+      });
       return reply.code(202).send({ pageId, granteeEmail, role: request.body.role, invitationId: invitation.invitationId, emailStatus });
     }
   );

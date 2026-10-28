@@ -57,7 +57,7 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   // Bearer tokens, not cookies, carry auth, so CORS only needs an explicit
   // origin allowlist — no credentials mode.
   await app.register(cors, {
-    origin: (origin, callback) => callback(null, !origin || deps.config.allowedOrigins.includes(origin) ? origin ?? false : false),
+    origin: (origin, callback) => callback(null, !origin || deps.config.allowedOrigins.includes(origin) ? (origin ?? false) : false),
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
     exposedHeaders: ["X-Request-ID"],
@@ -78,7 +78,10 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   app.addHook("onResponse", (request, reply, done) => {
     const route = request.routeOptions.url ?? "unmatched";
     const startedAt = (request as { startedAt?: bigint }).startedAt ?? process.hrtime.bigint();
-    httpRequestDuration.observe({ method: request.method, route, status: reply.statusCode }, Number(process.hrtime.bigint() - startedAt) / 1e9);
+    httpRequestDuration.observe(
+      { method: request.method, route, status: reply.statusCode },
+      Number(process.hrtime.bigint() - startedAt) / 1e9
+    );
     const span = (request as { span?: ReturnType<typeof tracer.startSpan> }).span;
     span?.setAttribute("http.status_code", reply.statusCode);
     span?.end();
@@ -88,7 +91,11 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   app.addHook("onRequest", async (request, reply) => {
     if (request.method === "OPTIONS" || UNLIMITED_ROUTES.has(request.routeOptions.url ?? "")) return;
     const { allowed, infraError } = await tryConsume(deps.limiters.http, request.ip);
-    if (infraError) request.log.error({ event: "rate_limiter_store_error", scope: "http", err: infraError }, "rate limiter store unavailable — failing open");
+    if (infraError)
+      request.log.error(
+        { event: "rate_limiter_store_error", scope: "http", err: infraError },
+        "rate limiter store unavailable — failing open"
+      );
     if (!allowed) {
       rateLimitRejectionsTotal.inc({ scope: "http" });
       return reply.code(429).header("retry-after", "60").send({ error: "rate limit exceeded" });
