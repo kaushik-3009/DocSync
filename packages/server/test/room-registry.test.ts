@@ -65,7 +65,7 @@ describe("RoomRegistry", () => {
         reconnect = handler;
       },
     };
-    const registry = new RoomRegistry(store, broadcaster);
+    const registry = new RoomRegistry({ pageStore: store, broadcaster });
     const room = await registry.getOrCreateRoom("page-a");
     const source = new Y.Doc();
     createBlock(source, "b1", { type: "paragraph", text: "missed while Redis was down" });

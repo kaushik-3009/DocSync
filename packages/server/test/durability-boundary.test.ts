@@ -64,9 +64,9 @@ async function waitFor(check: () => boolean, timeoutMs = 1_000): Promise<void> {
 
 describe("durable-before-fanout boundary", () => {
   it("drops the empty SyncStep2 handshake update without consuming a durable sequence", async () => {
-    const recordUpdate = vi.fn(async () => 1);
+    const recordUpdates = vi.fn(async () => [1]);
     const broadcaster = fakeBroadcaster();
-    const room = new Room("page-a", new Y.Doc(), 0, { recordUpdate } as unknown as PageStore, broadcaster);
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: { recordUpdates } as unknown as PageStore, broadcaster });
     const source = fakeSocket();
 
     // A fresh y-websocket client answers the gateway's SyncStep1 with this
@@ -77,7 +77,7 @@ describe("durable-before-fanout boundary", () => {
     room.handleMessage(source, encodeUpdateMessage(emptyUpdate));
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(recordUpdate).not.toHaveBeenCalled();
+    expect(recordUpdates).not.toHaveBeenCalled();
     expect(room.persistedSeq).toBe(0);
     expect(broadcaster.publishUpdate).not.toHaveBeenCalled();
   });
@@ -89,12 +89,12 @@ describe("durable-before-fanout boundary", () => {
     source.getMap<string>("benchmark").set("first", "one");
     source.getMap<string>("benchmark").set("second", "two");
 
-    const recordUpdate = vi.fn(async () => 2);
+    const recordUpdates = vi.fn(async () => [2]);
     const getOpsInRange = vi.fn(async (_pageId: string, afterSeq: number, uptoSeq: number) =>
       updates.slice(afterSeq, uptoSeq).map((update, index) => ({ seq: afterSeq + index + 1, update }))
     );
-    const store = { recordUpdate, getOpsInRange } as unknown as PageStore;
-    const room = new Room("page-a", new Y.Doc(), 0, store);
+    const store = { recordUpdates, getOpsInRange } as unknown as PageStore;
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: store });
 
     // This room owns seq=2, but seq=1 was committed by the other gateway and
     // has not arrived through Redis yet. The tracker must not treat seq=2 as
@@ -105,23 +105,19 @@ describe("durable-before-fanout boundary", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(room.persistedSeq).toBe(2);
-    expect(getOpsInRange).toHaveBeenCalledWith("page-a", 0, 1);
+    // seq=1 is exactly the next expected sequence, so the envelope itself is
+    // the missing operation and no durable range read is needed.
+    expect(getOpsInRange).not.toHaveBeenCalled();
     const values = room.doc.getMap<string>("benchmark");
     expect(values.get("first")).toBe("one");
     expect(values.get("second")).toBe("two");
   });
 
   it("does not apply or fan out a client update until its Postgres append resolves", async () => {
-    const append = deferred<number>();
-    const recordUpdate = vi.fn(() => append.promise);
+    const append = deferred<number[]>();
+    const recordUpdates = vi.fn(() => append.promise);
     const broadcaster = fakeBroadcaster();
-    const room = new Room(
-      "page-a",
-      new Y.Doc(),
-      0,
-      { recordUpdate } as unknown as PageStore,
-      broadcaster
-    );
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: { recordUpdates } as unknown as PageStore, broadcaster });
     const source = fakeSocket();
     const peer = fakeSocket();
     room.addConnection(source);
@@ -130,7 +126,7 @@ describe("durable-before-fanout boundary", () => {
     vi.mocked(peer.send).mockClear();
 
     room.handleMessage(source, encodeUpdateMessage(clientUpdate()));
-    await waitFor(() => recordUpdate.mock.calls.length === 1);
+    await waitFor(() => recordUpdates.mock.calls.length === 1);
     let drainSettled = false;
     const drain = room.flushDurableUpdates().then(() => {
       drainSettled = true;
@@ -145,7 +141,7 @@ describe("durable-before-fanout boundary", () => {
     expect(await metricsRegistry.metrics()).toContain("collab_updates_pending 1");
     expect(drainSettled).toBe(false);
 
-    append.resolve(7);
+    append.resolve([7]);
     await waitFor(() => serializeDocument(room.doc).length === 1);
 
     expect(room.persistedSeq).toBe(7);
@@ -158,17 +154,11 @@ describe("durable-before-fanout boundary", () => {
   });
 
   it("does not leak an update when its append fails and closes the source for replay", async () => {
-    const recordUpdate = vi.fn(async () => {
+    const recordUpdates = vi.fn(async () => {
       throw new Error("postgres unavailable");
     });
     const broadcaster = fakeBroadcaster();
-    const room = new Room(
-      "page-a",
-      new Y.Doc(),
-      0,
-      { recordUpdate } as unknown as PageStore,
-      broadcaster
-    );
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: { recordUpdates } as unknown as PageStore, broadcaster });
     const source = fakeSocket();
     const peer = fakeSocket();
     room.addConnection(source);
@@ -188,19 +178,13 @@ describe("durable-before-fanout boundary", () => {
   });
 
   it("re-checks the authoritative role before append and closes a revoked session", async () => {
-    const recordUpdate = vi.fn(async () => 1);
+    const recordUpdates = vi.fn(async () => [1]);
     const broadcaster = fakeBroadcaster();
-    const room = new Room(
-      "page-a",
-      new Y.Doc(),
-      0,
-      { recordUpdate } as unknown as PageStore,
+    const room = new Room("page-a", new Y.Doc(), 0, {
+      pageStore: { recordUpdates } as unknown as PageStore,
       broadcaster,
-      null,
-      null,
-      null,
-      vi.fn(async () => null)
-    );
+      mutationAuthorizer: vi.fn(async () => new Map()),
+    });
     const source = fakeSocket();
     const peer = fakeSocket();
     room.addConnection(source, "editor", "user-1");
@@ -211,32 +195,26 @@ describe("durable-before-fanout boundary", () => {
     await waitFor(() => vi.mocked(source.close).mock.calls.length === 1);
 
     expect(source.close).toHaveBeenCalledWith(4403, "page mutation permission revoked");
-    expect(recordUpdate).not.toHaveBeenCalled();
+    expect(recordUpdates).not.toHaveBeenCalled();
     expect(serializeDocument(room.doc)).toEqual([]);
     expect(peer.send).not.toHaveBeenCalled();
   });
 
   it("makes server-side mutations await the same commit boundary before reporting success", async () => {
-    const append = deferred<number>();
-    const recordUpdate = vi.fn(() => append.promise);
+    const append = deferred<number[]>();
+    const recordUpdates = vi.fn(() => append.promise);
     const broadcaster = fakeBroadcaster();
-    const room = new Room(
-      "page-a",
-      new Y.Doc(),
-      0,
-      { recordUpdate } as unknown as PageStore,
-      broadcaster
-    );
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: { recordUpdates } as unknown as PageStore, broadcaster });
     const peer = fakeSocket();
     room.addConnection(peer);
     vi.mocked(peer.send).mockClear();
 
     const admission = room.applyServerUpdate(clientUpdate());
-    await waitFor(() => recordUpdate.mock.calls.length === 1);
+    await waitFor(() => recordUpdates.mock.calls.length === 1);
     expect(serializeDocument(room.doc)).toEqual([]);
     expect(peer.send).not.toHaveBeenCalled();
 
-    append.resolve(8);
+    append.resolve([8]);
     await expect(admission).resolves.toBe(8);
     expect(serializeDocument(room.doc)).toHaveLength(1);
     expect(peer.send).toHaveBeenCalledTimes(1);
@@ -244,7 +222,7 @@ describe("durable-before-fanout boundary", () => {
 
   it("fans a durable Redis update to local peers without publishing an echo", () => {
     const broadcaster = fakeBroadcaster();
-    const room = new Room("page-a", new Y.Doc(), 0, null, broadcaster);
+    const room = new Room("page-a", new Y.Doc(), 0, { broadcaster });
     const peer = fakeSocket();
     room.addConnection(peer);
     vi.mocked(peer.send).mockClear();

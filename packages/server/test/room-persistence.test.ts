@@ -13,7 +13,7 @@ beforeEach(async () => {
 
 describe("Room + RoomRegistry with persistence", () => {
   it("persists a doc update made through a Room and reloads it after the Room is destroyed", async () => {
-    const registry1 = new RoomRegistry(new PageStore(pool));
+    const registry1 = new RoomRegistry({ pageStore: new PageStore(pool) });
     const room1 = await registry1.getOrCreateRoom("page-a");
     createBlock(room1.doc, "b1", { type: "paragraph", text: "durable" });
 
@@ -22,7 +22,7 @@ describe("Room + RoomRegistry with persistence", () => {
 
     // Simulate the room being evicted (process restart / another instance
     // taking over the page) and re-created from a fresh registry.
-    const registry2 = new RoomRegistry(new PageStore(pool));
+    const registry2 = new RoomRegistry({ pageStore: new PageStore(pool) });
     const room2 = await registry2.getOrCreateRoom("page-a");
 
     expect(serializeDocument(room2.doc)).toEqual(serializeDocument(room1.doc));
@@ -38,7 +38,7 @@ describe("Room + RoomRegistry with persistence", () => {
 
   it("restores a page to an old version via the same replay+transact path the HTTP restore route uses", async () => {
     const pageStore = new PageStore(pool);
-    const registry = new RoomRegistry(pageStore);
+    const registry = new RoomRegistry({ pageStore });
     const room = await registry.getOrCreateRoom("page-a");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "original" });
@@ -65,7 +65,7 @@ describe("Room + RoomRegistry with persistence", () => {
     // And the restore itself is durable — reloading the page from Postgres
     // from scratch reflects the restored state, not the pre-restore edits.
     await waitFor(() => room.persistedSeq === 5);
-    const registry2 = new RoomRegistry(new PageStore(pool));
+    const registry2 = new RoomRegistry({ pageStore: new PageStore(pool) });
     const reloadedRoom = await registry2.getOrCreateRoom("page-a");
     expect(serializeDocument(reloadedRoom.doc)).toEqual(snapshotBlocks);
   });

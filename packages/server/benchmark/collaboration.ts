@@ -7,7 +7,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import WebSocket from "ws";
 import * as Y from "yjs";
 import * as decoding from "lib0/decoding";
@@ -36,8 +36,19 @@ interface RunSettings {
   origin: string;
   httpBaseUrl: string;
   wsBaseUrl: string;
+  /** Optional comma-separated gateway URLs; clients are spread round-robin so
+   * a run can exercise cross-gateway fanout without a load balancer. */
+  wsBaseUrls: string[];
   pageId: string;
   runId: string;
+  /** Sharding: the harness itself is CPU-bound past ~50 clients (every client
+   * applies every other client's update), so large runs split the clients
+   * across processes. Shard k owns global client indices i with i % count = k. */
+  shardIndex: number;
+  shardCount: number;
+  /** Shards share one owner token and a common start instant. */
+  token: string | undefined;
+  startAtMs: number | undefined;
   output: string;
 }
 
@@ -68,8 +79,18 @@ function settingsFromEnvironment(): RunSettings {
     origin: process.env.BENCHMARK_ORIGIN ?? "http://localhost:8080",
     httpBaseUrl,
     wsBaseUrl,
-    pageId: process.env.BENCHMARK_PAGE_ID ?? `bench-${runId}`.replace(/[^A-Za-z0-9_-]/g, "-"),
+    wsBaseUrls: (process.env.BENCHMARK_WS_BASE_URLS ?? wsBaseUrl)
+      .split(",")
+      .map((url) => url.trim().replace(/\/$/, ""))
+      .filter(Boolean),
+    // Filled in by createBenchmarkDocument unless an existing page is supplied:
+    // the gateway only admits connections to pages that exist in `documents`.
+    pageId: process.env.BENCHMARK_PAGE_ID ?? "",
     runId,
+    shardIndex: Number(process.env.BENCHMARK_SHARD_INDEX ?? 0),
+    shardCount: positiveInteger("BENCHMARK_SHARD_COUNT", 1),
+    token: process.env.BENCHMARK_TOKEN || undefined,
+    startAtMs: process.env.BENCHMARK_START_AT_MS ? Number(process.env.BENCHMARK_START_AT_MS) : undefined,
     output: resolve(process.env.BENCHMARK_OUTPUT ?? `artifacts/benchmarks/${runId}/client-results.json`),
   };
 }
@@ -94,6 +115,18 @@ async function benchmarkToken(config: RunSettings): Promise<string> {
   return result.body.token;
 }
 
+async function createBenchmarkDocument(config: RunSettings, token: string): Promise<string> {
+  const result = await requestJson<{ document?: { id: string }; error?: string }>(`${config.httpBaseUrl}/documents`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: config.origin, authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title: `Benchmark ${config.runId}` }),
+  });
+  if (result.status !== 201 || !result.body.document) {
+    throw new Error(`benchmark document creation failed (${result.status}): ${result.body.error ?? "missing document"}`);
+  }
+  return result.body.document.id;
+}
+
 async function writeFailureArtifact(config: RunSettings, startedAt: string, phase: string, error: unknown): Promise<void> {
   await mkdir(dirname(config.output), { recursive: true });
   const details = error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : { message: String(error) };
@@ -105,7 +138,7 @@ async function writeFailureArtifact(config: RunSettings, startedAt: string, phas
         status: "failed",
         startedAt,
         finishedAt: new Date().toISOString(),
-        settings: config,
+        settings: { ...config, token: undefined, output: relative(process.cwd(), config.output) },
         failure: { phase, ...details },
       },
       null,
@@ -245,9 +278,24 @@ async function main(): Promise<void> {
   const clients: YjsWireClient[] = [];
   let phase = "registration";
   try {
-    const token = await benchmarkToken(config);
-    const wsUrl = `${config.wsBaseUrl}/ws/${config.pageId}?token=${encodeURIComponent(token)}`;
-    clients.push(...Array.from({ length: config.clients }, (_, index) => new YjsWireClient(`client-${index}`, wsUrl, config.origin)));
+    const token = config.token ?? (await benchmarkToken(config));
+    if (!config.pageId) config.pageId = await createBenchmarkDocument(config, token);
+    if (process.env.BENCHMARK_SETUP_ONLY === "true") {
+      // Orchestrators register once, then hand the token/page to every shard.
+      process.stdout.write(`${JSON.stringify({ token, pageId: config.pageId })}\n`);
+      return;
+    }
+    const wsUrlFor = (index: number) =>
+      `${config.wsBaseUrls[index % config.wsBaseUrls.length]}/ws/${config.pageId}?token=${encodeURIComponent(token)}`;
+    const localIndices = Array.from({ length: config.clients }, (_, index) => index).filter(
+      (index) => index % config.shardCount === config.shardIndex
+    );
+    const clientIndexById = new Map<string, number>();
+    for (const index of localIndices) {
+      const client = new YjsWireClient(`client-${index}`, wsUrlFor(index), config.origin);
+      clientIndexById.set(client.id, index);
+      clients.push(client);
+    }
     const startedAt = runStartedAt;
     phase = "connection";
     const connectionStartedAt = Date.now();
@@ -258,15 +306,22 @@ async function main(): Promise<void> {
     // gateway finish registering all sockets before concurrent edits begin.
     // This keeps handshake traffic out of the mutation-propagation phase.
     await new Promise((resolve) => setTimeout(resolve, 250));
+    if (config.startAtMs !== undefined) {
+      if (Date.now() > config.startAtMs) throw new Error("shard connected after the shared start instant; raise the start delay");
+      await new Promise((resolve) => setTimeout(resolve, config.startAtMs! - Date.now()));
+    }
 
-    const mutationIds: string[] = [];
+    // Every shard knows the full deterministic mutation set, so each one can
+    // verify convergence of all edits, not just its own.
+    const mutationIds = Array.from({ length: config.clients }, (_, clientIndex) =>
+      Array.from({ length: config.operationsPerClient }, (_, operation) => `${config.runId}-${clientIndex}-${operation}`)
+    ).flat();
     phase = "mutation-propagation";
     const mutationStartedAt = Date.now();
-    for (const [clientIndex, client] of clients.entries()) {
+    for (const client of clients) {
+      const clientIndex = clientIndexById.get(client.id)!;
       for (let operation = 0; operation < config.operationsPerClient; operation += 1) {
-        const mutationId = `${config.runId}-${clientIndex}-${operation}`;
-        mutationIds.push(mutationId);
-        client.mutate(mutationId, Date.now());
+        client.mutate(`${config.runId}-${clientIndex}-${operation}`, Date.now());
       }
     }
     try {
@@ -294,14 +349,15 @@ async function main(): Promise<void> {
         .update(JSON.stringify([...client.doc.getMap<number>("benchmark-mutations").entries()].sort(([a], [b]) => a.localeCompare(b))))
       .digest("hex")
     );
-    const expectedPeerObservations = mutationIds.length * Math.max(0, clients.length - 1);
+    // Each local client observes every mutation except its own.
+    const expectedPeerObservations = clients.length * (mutationIds.length - config.operationsPerClient);
     const observationsComplete = observations.length === expectedPeerObservations;
     const result = {
       schemaVersion: 1,
       status: "passed",
       startedAt,
       finishedAt: new Date().toISOString(),
-      settings: config,
+      settings: { ...config, token: undefined, output: relative(process.cwd(), config.output) },
       connection: { successfulClients: clients.length, elapsedMs: connectionElapsedMs, errors: clients.reduce((sum, client) => sum + client.errorCount(), 0) },
       mutations: {
         sent: mutationIds.length,

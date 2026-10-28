@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { Pool } from "pg";
-import { appendOp, getCurrentSeq, getOpsInRange, listLogicalVersionSummaries, listOpSummaries, type LogicalVersionSummary, type OpRow, type OpSummary } from "./ops-log.js";
+import { appendOps, getCurrentSeq, getOpsInRange, listLogicalVersionSummaries, listOpSummaries, type AppendEntry, type LogicalVersionSummary, type OpRow, type OpSummary } from "./ops-log.js";
 import { saveSnapshot } from "./snapshots.js";
 import { replayDocument } from "./replay.js";
 import { childLogger } from "../logger.js";
@@ -27,42 +27,67 @@ export class PageStore {
     return replayDocument(this.pool, pageId);
   }
 
-  /**
-   * Appends one Yjs update to the ops log and, every SNAPSHOT_INTERVAL ops,
-   * writes a fresh snapshot from the caller's current in-memory doc state
-   * (cheaper than replaying — the caller already has the merged doc).
-   */
+  /** Single-update form of `recordUpdates`. */
   async recordUpdate(
     pageId: string,
     update: Uint8Array,
     currentDocState: () => Uint8Array,
     options: { enqueueFanout?: boolean; clientMutationId?: string; clientCreatedAtMs?: number } = {}
   ): Promise<number> {
-    return tracer.startActiveSpan("persistence.record_update", { attributes: { "collab.page_id": pageId } }, async (span) => {
-      try {
-        const seq = await appendOp(this.pool, pageId, update, {
-          enqueueFanout: options.enqueueFanout,
+    const [seq] = await this.recordUpdates(
+      pageId,
+      [
+        {
+          update,
           traceparent: options.enqueueFanout ? currentTraceparent() ?? undefined : undefined,
           clientMutationId: options.clientMutationId,
           clientCreatedAtMs: options.clientCreatedAtMs,
-        });
-        span.setAttribute("collab.seq", seq);
-        if (seq % SNAPSHOT_INTERVAL === 0) {
-          try {
-            await saveSnapshot(this.pool, pageId, seq, currentDocState());
-            log.info({ event: "snapshot_taken", pageId, seq }, "wrote periodic snapshot");
-          } catch (err) {
-            // The operation and (when enabled) outbox row already committed.
-            // Treating a later optimization failure as a mutation failure would
-            // close the source and misreport a durable update as rejected.
-            log.error({ event: "snapshot_failed_after_commit", pageId, seq, err }, "snapshot failed after durable op commit; replay remains available from ops log");
+        },
+      ],
+      currentDocState,
+      { enqueueFanout: options.enqueueFanout }
+    );
+    return seq!;
+  }
+
+  /**
+   * Appends a batch of Yjs updates in one transaction (group commit) and, when
+   * the batch crosses a SNAPSHOT_INTERVAL boundary, writes a snapshot at the
+   * batch's last sequence from the caller's merged doc state — cheaper than
+   * replaying, since the caller already holds the document.
+   */
+  async recordUpdates(
+    pageId: string,
+    entries: AppendEntry[],
+    currentDocState: () => Uint8Array,
+    options: { enqueueFanout?: boolean } = {}
+  ): Promise<number[]> {
+    return tracer.startActiveSpan(
+      "persistence.record_updates",
+      { attributes: { "collab.page_id": pageId, "collab.batch_size": entries.length } },
+      async (span) => {
+        try {
+          const seqs = await appendOps(this.pool, pageId, entries, options);
+          const firstSeq = seqs[0]!;
+          const lastSeq = seqs[seqs.length - 1]!;
+          span.setAttribute("collab.seq", lastSeq);
+          if (Math.floor(lastSeq / SNAPSHOT_INTERVAL) > Math.floor((firstSeq - 1) / SNAPSHOT_INTERVAL)) {
+            try {
+              await saveSnapshot(this.pool, pageId, lastSeq, currentDocState());
+              log.info({ event: "snapshot_taken", pageId, seq: lastSeq }, "wrote periodic snapshot");
+            } catch (err) {
+              // The operations (and outbox rows) already committed. Treating a
+              // later optimization failure as a mutation failure would close
+              // the sources and misreport durable updates as rejected.
+              log.error({ event: "snapshot_failed_after_commit", pageId, seq: lastSeq, err }, "snapshot failed after durable op commit; replay remains available from ops log");
+            }
           }
+          return seqs;
+        } finally {
+          span.end();
         }
-        return seq;
-      } finally {
-        span.end();
       }
-    });
+    );
   }
 
   async currentSeq(pageId: string): Promise<number> {

@@ -11,6 +11,20 @@ export async function getExistingRole(pool: Pool, pageId: string, userId: string
   return result.rows[0]?.role ?? null;
 }
 
+/** Roles for several users on one page in a single query. Users without a
+ * grant are absent from the result. */
+export async function getExistingRoles(pool: Pool, pageId: string, userIds: string[]): Promise<Map<string, Role>> {
+  if (userIds.length === 0) return new Map();
+  // An expanded IN list rather than `= ANY($2)`: pg-mem (unit tests) silently
+  // matches nothing for array parameters.
+  const placeholders = userIds.map((_, index) => `$${index + 2}`).join(", ");
+  const result = await pool.query<{ user_id: string; role: Role }>(
+    `SELECT user_id, role FROM page_roles WHERE page_id = $1 AND user_id IN (${placeholders})`,
+    [pageId, ...userIds]
+  );
+  return new Map(result.rows.map((row) => [row.user_id, row.role]));
+}
+
 /**
  * Resolves a connecting user's existing role. The document must already exist
  * and the user must be its owner or have accepted an invitation; otherwise the

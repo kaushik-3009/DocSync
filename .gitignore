@@ -27,6 +27,8 @@ artifacts/chaos/*/
 !artifacts/benchmarks/publish-20260806-100c/
 !artifacts/benchmarks/publish-20260806-100c/client-results.json
 !artifacts/benchmarks/publish-20260806-100c/collection-summary.json
+!artifacts/benchmarks/group-commit-*/
+!artifacts/benchmarks/group-commit-*/client-results.json
 !artifacts/chaos/test-persistent-gateway-2/
 !artifacts/chaos/test-persistent-gateway-2/summary.json
 !artifacts/chaos/test-persistent-redis/
@@ -36,3 +38,4 @@ artifacts/chaos/*/
 !artifacts/chaos/worker-accounted-3/
 !artifacts/chaos/worker-accounted-3/summary.json
 .claude/
+dump.rdb

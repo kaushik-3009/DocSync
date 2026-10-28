@@ -28,24 +28,27 @@ describe("distributed tracing", () => {
     for (const client of redisClients.splice(0)) client.disconnect();
   });
 
-  it("nests a persisted doc update's persistence span under the room's doc_update span", async () => {
+  it("nests a persisted doc update's commit and persistence spans under the room's doc_update span", async () => {
     const pool = await createTestPool();
     const pageStore = new PageStore(pool);
-    const registry = new RoomRegistry(pageStore);
+    const registry = new RoomRegistry({ pageStore });
     const room = await registry.getOrCreateRoom("trace-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "hello" });
 
-    await vi_waitFor(() => testSpanExporter.getFinishedSpans().some((s) => s.name === "persistence.record_update"));
+    await vi_waitFor(() => testSpanExporter.getFinishedSpans().some((s) => s.name === "room.commit_batch"));
 
     const spans = testSpanExporter.getFinishedSpans();
     const docUpdateSpan = spans.find((s) => s.name === "room.doc_update");
-    const persistSpan = spans.find((s) => s.name === "persistence.record_update");
+    const commitSpan = spans.find((s) => s.name === "room.commit_batch");
+    const persistSpan = spans.find((s) => s.name === "persistence.record_updates");
 
     expect(docUpdateSpan).toBeDefined();
+    expect(commitSpan).toBeDefined();
     expect(persistSpan).toBeDefined();
     expect(persistSpan!.spanContext().traceId).toBe(docUpdateSpan!.spanContext().traceId);
-    expect(persistSpan!.parentSpanContext?.spanId).toBe(docUpdateSpan!.spanContext().spanId);
+    expect(commitSpan!.parentSpanContext?.spanId).toBe(docUpdateSpan!.spanContext().spanId);
+    expect(persistSpan!.parentSpanContext?.spanId).toBe(commitSpan!.spanContext().spanId);
   });
 
   it("continues the enqueueing trace in the worker via the traceparent carried in job data (queue boundary)", async () => {
@@ -77,13 +80,13 @@ describe("distributed tracing", () => {
     const sub = new RedisMock();
     redisClients.push(pub, sub);
     const broadcasterA = new RedisRoomBroadcaster(pub as never, sub as never);
-    const registryA = new RoomRegistry(null, broadcasterA);
+    const registryA = new RoomRegistry({ broadcaster: broadcasterA });
 
     const pub2 = new RedisMock();
     const sub2 = new RedisMock();
     redisClients.push(pub2, sub2);
     const broadcasterB = new RedisRoomBroadcaster(pub2 as never, sub2 as never);
-    const registryB = new RoomRegistry(null, broadcasterB);
+    const registryB = new RoomRegistry({ broadcaster: broadcasterB });
 
     const roomA = await registryA.getOrCreateRoom("cross-instance-page");
     const roomB = await registryB.getOrCreateRoom("cross-instance-page");

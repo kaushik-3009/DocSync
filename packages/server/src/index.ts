@@ -23,7 +23,7 @@ import { RedisRoomBroadcaster, type RoomBroadcaster } from "./redis/broadcaster.
 import { createUser, verifyCredentials, findUserByEmail, EmailAlreadyRegisteredError } from "./auth/users.js";
 import { signToken } from "./auth/jwt.js";
 import { authenticateRequest } from "./auth/http.js";
-import { getExistingRole, grantRole, revokeRole, listRoles, NotOwnerError } from "./auth/rbac.js";
+import { getExistingRole, getExistingRoles, grantRole, revokeRole, listRoles, NotOwnerError } from "./auth/rbac.js";
 import { recordAudit, listAuditLog } from "./auth/audit.js";
 import { JobQueues } from "./jobs/queues.js";
 import { startWorkers } from "./jobs/workers.js";
@@ -182,18 +182,14 @@ if (!rateLimitRedis) {
   );
 }
 
-// jobQueues was previously never passed here — Room's search-index/preview
-// enqueue calls were consequently always no-ops in the real server (only
-// test/jobs.test.ts's direct processor calls exercised that logic), a real
-// pre-existing wiring bug fixed alongside adding mentionsStore below.
-const registry = new RoomRegistry(
+const registry = new RoomRegistry({
   pageStore,
   broadcaster,
   jobQueues,
   mentionsStore,
   fanoutOutbox,
-  pool ? (pageId, userId) => getExistingRole(pool!, pageId, userId) : null
-);
+  mutationAuthorizer: pool ? (pageId, userIds) => getExistingRoles(pool!, pageId, userIds) : null,
+});
 
 const VERSIONS_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/versions$/;
 const VERSION_AT_PATH = /^\/pages\/([A-Za-z0-9_-]+)\/versions\/(\d+)$/;

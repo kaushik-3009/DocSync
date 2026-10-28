@@ -84,7 +84,7 @@ describe("comments sync and persist through the existing Y.Doc pipeline", () => 
     const pool = await createTestPool();
     const pageStore = new PageStore(pool);
 
-    const registryBefore = new RoomRegistry(pageStore);
+    const registryBefore = new RoomRegistry({ pageStore });
     const room = await registryBefore.getOrCreateRoom("commented-page");
     createBlock(room.doc, "b1", { type: "paragraph", text: "hello" });
     createComment(room.doc, "c1", { blockId: "b1", authorId: "u1", authorName: "Alice", text: "looks good" });
@@ -94,7 +94,7 @@ describe("comments sync and persist through the existing Y.Doc pipeline", () => 
     // pg-mem; the assertion is about persisted history, not scheduler timing.
     await waitFor(async () => (await getCurrentSeq(pool, "commented-page")) >= 2);
 
-    const registryAfter = new RoomRegistry(pageStore);
+    const registryAfter = new RoomRegistry({ pageStore });
     const reloaded = await registryAfter.getOrCreateRoom("commented-page");
     expect(commentsForBlock(reloaded.doc, "b1")).toMatchObject([{ text: "looks good", authorName: "Alice" }]);
   });
@@ -162,7 +162,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("auto-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });
@@ -188,7 +188,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("edit-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });
@@ -211,7 +211,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("delete-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });

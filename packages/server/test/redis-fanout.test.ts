@@ -23,7 +23,7 @@ function makeInstance(pageStore: PageStore | null = null) {
   const sub = new RedisMock();
   redisClients.push(pub, sub);
   const broadcaster = new RedisRoomBroadcaster(pub as never, sub as never);
-  const registry = new RoomRegistry(pageStore, broadcaster);
+  const registry = new RoomRegistry({ pageStore, broadcaster });
   return { registry, broadcaster };
 }
 
@@ -99,7 +99,7 @@ describe("Redis pub/sub fanout across instances", () => {
     await store.recordUpdate("shared-page", updates[0]!, () => Y.encodeStateAsUpdate(source));
     await store.recordUpdate("shared-page", updates[1]!, () => Y.encodeStateAsUpdate(source));
 
-    const recoveringRoom = new Room("shared-page", new Y.Doc(), 0, store);
+    const recoveringRoom = new Room("shared-page", new Y.Doc(), 0, { pageStore: store });
     // Sequence 1 is deliberately never sent to this room. The seq=2 envelope
     // must make it load ops 1..2 from Postgres before broadcasting locally.
     recoveringRoom.applyRemoteUpdate(updates[1]!, 2);
@@ -122,7 +122,7 @@ describe("Redis pub/sub fanout across instances", () => {
     // is delayed. This room then admits the independent update as seq=2 and
     // applies it locally while its contiguous durable cursor is still zero.
     await store.recordUpdate("shared-page", updates[0]!, () => Y.encodeStateAsUpdate(source));
-    const room = new Room("shared-page", new Y.Doc(), 0, store);
+    const room = new Room("shared-page", new Y.Doc(), 0, { pageStore: store });
     await room.applyServerUpdate(updates[1]!);
 
     // The late seq=1 envelope must fill the gap rather than being treated as a

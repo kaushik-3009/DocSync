@@ -12,7 +12,7 @@ describe("fresh assistant context", () => {
   it("uses the active room after its durable queue is flushed", async () => {
     const doc = new Y.Doc();
     createBlock(doc, "b1", { type: "paragraph", text: "just typed" });
-    room = new Room("page-a", doc, 3, null);
+    room = new Room("page-a", doc, 3);
     const releaseRoom = vi.fn();
     const state = await loadFreshAssistantState(
       "page-a",
@@ -30,7 +30,7 @@ describe("fresh assistant context", () => {
   });
 
   it("fails closed instead of planning from a stale room sequence", async () => {
-    room = new Room("page-b", new Y.Doc(), 1, null);
+    room = new Room("page-b", new Y.Doc(), 1);
     await expect(loadFreshAssistantState(
       "page-b",
       { currentSeq: async () => 2 },

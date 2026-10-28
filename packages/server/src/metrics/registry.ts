@@ -73,6 +73,13 @@ export const collabUpdateDurabilitySeconds = new Histogram({
   registers: [metricsRegistry],
 });
 
+export const collabCommitBatchSize = new Histogram({
+  name: "collab_commit_batch_size",
+  help: "Updates committed per group-commit transaction",
+  buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256],
+  registers: [metricsRegistry],
+});
+
 export const collabFanoutOutboxTotal = new Counter({
   name: "collab_fanout_outbox_total",
   help: "Transactional fanout outbox rows by delivery outcome",

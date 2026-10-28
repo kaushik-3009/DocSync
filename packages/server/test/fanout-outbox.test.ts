@@ -106,12 +106,83 @@ describe("transactional fanout outbox", () => {
       subscribeRoom: vi.fn(async () => undefined),
       unsubscribeRoom: vi.fn(),
     };
-    const room = new Room("page-a", new Y.Doc(), 0, store, broadcaster, null, null, outbox);
+    const room = new Room("page-a", new Y.Doc(), 0, { pageStore: store, broadcaster, fanoutOutbox: outbox });
 
     createBlock(room.doc, "block-1", { type: "paragraph", text: "through outbox" });
     await waitFor(() => vi.mocked(publisher.publishCommittedUpdate).mock.calls.length === 1);
 
     expect(directPublish).not.toHaveBeenCalled();
     expect(await outbox.pendingCount()).toBe(0);
+  });
+
+  it("leaves rows younger than the sweep grace window to the committing gateway", async () => {
+    const store = new PageStore(pool);
+    const update = committedUpdate();
+    await store.recordUpdate("page-a", update, () => update, { enqueueFanout: true });
+    const publisher: CommittedUpdatePublisher = { publishCommittedUpdate: vi.fn(async () => undefined) };
+    const outbox = new FanoutOutbox(pool, publisher);
+
+    await outbox.drain({ minAgeMs: 60_000 });
+    expect(publisher.publishCommittedUpdate).not.toHaveBeenCalled();
+    await outbox.drain();
+    expect(publisher.publishCommittedUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("acknowledges fast-path publishes so the sweeper never republishes them", async () => {
+    const store = new PageStore(pool);
+    const update = committedUpdate();
+    const seq = await store.recordUpdate("page-a", update, () => update, { enqueueFanout: true });
+    const publisher: CommittedUpdatePublisher = { publishCommittedUpdate: vi.fn(async () => undefined) };
+    const outbox = new FanoutOutbox(pool, publisher);
+
+    await outbox.publishCommitted([{ pageId: "page-a", seq, update, traceparent: null }]);
+    expect(await outbox.pendingCount()).toBe(0);
+    await outbox.drain();
+    expect(publisher.publishCommittedUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a fast-path row whose publish failed for the sweeper", async () => {
+    const store = new PageStore(pool);
+    const update = committedUpdate();
+    const seq = await store.recordUpdate("page-a", update, () => update, { enqueueFanout: true });
+    const publisher: CommittedUpdatePublisher = {
+      publishCommittedUpdate: vi.fn().mockRejectedValueOnce(new Error("redis unavailable")).mockResolvedValue(undefined),
+    };
+    const outbox = new FanoutOutbox(pool, publisher);
+
+    await outbox.publishCommitted([{ pageId: "page-a", seq, update, traceparent: null }]);
+    expect(await outbox.pendingCount()).toBe(1);
+    await outbox.drain();
+    expect(await outbox.pendingCount()).toBe(0);
+  });
+
+  it("lets only one of two concurrent sweepers lease a row", async () => {
+    const store = new PageStore(pool);
+    for (let i = 0; i < 5; i += 1) {
+      const update = new Uint8Array([...committedUpdate(), i]);
+      await store.recordUpdate("page-a", update, () => update, { enqueueFanout: true });
+    }
+    const published: number[] = [];
+    const publisher: CommittedUpdatePublisher = {
+      publishCommittedUpdate: vi.fn(async ({ seq }) => {
+        published.push(seq);
+      }),
+    };
+    await Promise.all([new FanoutOutbox(pool, publisher).drain(), new FanoutOutbox(pool, publisher).drain()]);
+
+    expect(published.sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("prunes delivered rows past the retention window", async () => {
+    const store = new PageStore(pool);
+    const update = committedUpdate();
+    await store.recordUpdate("page-a", update, () => update, { enqueueFanout: true });
+    const outbox = new FanoutOutbox(pool, { publishCommittedUpdate: vi.fn(async () => undefined) });
+    await outbox.drain();
+
+    expect(await outbox.prune(60_000)).toBe(0);
+    expect(await outbox.prune(-1)).toBe(1);
+    const { rows } = await pool.query("SELECT 1 FROM fanout_outbox");
+    expect(rows).toHaveLength(0);
   });
 });

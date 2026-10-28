@@ -1,19 +1,14 @@
 import * as Y from "yjs";
-import { Room, type MutationAuthorizer } from "./room.js";
+import { Room, type RoomDependencies } from "./room.js";
 import { childLogger } from "./logger.js";
 import type { PageStore } from "./persistence/page-store.js";
 import type { RoomBroadcaster } from "./redis/broadcaster.js";
-import type { JobQueues } from "./jobs/queues.js";
-import type { MentionsStore } from "./comments/mentions-store.js";
-import type { FanoutOutbox } from "./persistence/fanout-outbox.js";
 
 const log = childLogger({ module: "room-registry" });
 
 /**
- * In-process room lookup by pageId. This is intentionally the *only* place
- * that knows "rooms live in this process." Callers (ws-gateway.ts) only
- * ever call getOrCreateRoom/releaseRoom, so swapping the fanout mechanism
- * (Phase 4: Redis pub/sub) never touches sync logic in Room or the gateway.
+ * In-process room lookup by pageId — the only place that knows rooms live in
+ * this process. Callers only use getOrCreateRoom/releaseRoom.
  *
  * getOrCreateRoom is async because creating a Room may mean loading its
  * document from Postgres (Phase 2 persistence) first. Concurrent callers
@@ -31,14 +26,12 @@ export class RoomRegistry {
   private readonly pending = new Map<string, Promise<Room>>();
   private shuttingDown = false;
 
-  constructor(
-    private readonly pageStore: PageStore | null = null,
-    private readonly broadcaster: RoomBroadcaster | null = null,
-    private readonly jobQueues: JobQueues | null = null,
-    private readonly mentionsStore: MentionsStore | null = null,
-    private readonly fanoutOutbox: FanoutOutbox | null = null,
-    private readonly mutationAuthorizer: MutationAuthorizer | null = null
-  ) {
+  private readonly pageStore: PageStore | null;
+  private readonly broadcaster: RoomBroadcaster | null;
+
+  constructor(private readonly dependencies: RoomDependencies = {}) {
+    this.pageStore = dependencies.pageStore ?? null;
+    this.broadcaster = dependencies.broadcaster ?? null;
     this.broadcaster?.setReconnectHandler?.(() => {
       void this.reconcileAllRooms().catch((err) => log.error({ event: "redis_reconnect_reconcile_failed", err }, "failed to reconcile rooms after Redis reconnect"));
     });
@@ -64,17 +57,7 @@ export class RoomRegistry {
 
   private async createRoom(pageId: string): Promise<Room> {
     const { doc, seq } = this.pageStore ? await this.pageStore.loadPage(pageId) : { doc: new Y.Doc(), seq: 0 };
-    const room = new Room(
-      pageId,
-      doc,
-      seq,
-      this.pageStore,
-      this.broadcaster,
-      this.jobQueues,
-      this.mentionsStore,
-      this.fanoutOutbox,
-      this.mutationAuthorizer
-    );
+    const room = new Room(pageId, doc, seq, this.dependencies);
 
     if (this.broadcaster) {
       await this.broadcaster.subscribeRoom(pageId, {
