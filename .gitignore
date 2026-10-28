@@ -39,3 +39,5 @@ artifacts/chaos/*/
 !artifacts/chaos/worker-accounted-3/summary.json
 .claude/
 dump.rdb
+test-results/
+playwright-report/

@@ -31,8 +31,11 @@ function configuredPoints(value: string | undefined, fallback: number): number {
 /** Brute-force protection on login: keyed by IP+email so one attacker can't lock out
  *  a victim's account by spamming failed logins under someone else's IP, and one IP
  *  can't brute-force many accounts by spreading attempts thin across emails. */
-export function createLoginLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:login", points: 5, duration: 60, blockDuration: 60 });
+export function createLoginLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.LOGIN_RATE_LIMIT_POINTS, 5)
+): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:login", points, duration: 60, blockDuration: 60 });
 }
 
 /** Registration attempts, keyed by IP. `/auth/register` necessarily returns a
@@ -42,8 +45,11 @@ export function createLoginLimiter(redis: Redis | null): RateLimiterAbstract {
  *  mainstream signup flow relies on) — this doesn't remove that oracle, but
  *  a much tighter budget than the general HTTP limiter keeps it too slow to
  *  use for bulk email enumeration. */
-export function createRegisterLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:register", points: 5, duration: 60, blockDuration: 300 });
+export function createRegisterLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.REGISTER_RATE_LIMIT_POINTS, 5)
+): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:register", points, duration: 60, blockDuration: 300 });
 }
 
 /** General HTTP request limiting, keyed by IP (or userId when authenticated). */

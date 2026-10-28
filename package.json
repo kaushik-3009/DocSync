@@ -9,16 +9,18 @@
   "scripts": {
     "dev:server": "pnpm --filter @collab/server dev",
     "dev:client": "pnpm --filter @collab/client dev",
-    "test": "pnpm --filter @collab/server test",
+    "test": "pnpm -r --if-present test",
     "build": "pnpm -r build",
     "test:integration": "pnpm --filter @collab/server test:integration",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test:e2e": "pnpm --filter @collab/server build && playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "1.63.0",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^5.2.0",

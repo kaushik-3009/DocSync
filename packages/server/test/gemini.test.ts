@@ -98,21 +98,19 @@ describe("Gemini assistant boundary", () => {
   });
 
   it("builds a safe paragraph insertion when an essay request is not structured", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content:
-                  "Agriculture supports food systems, rural livelihoods, and local economies. Sustainable practices can protect soil, conserve water, and improve resilience while helping communities meet changing needs.",
-              },
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                "Agriculture supports food systems, rural livelihoods, and local economies. Sustainable practices can protect soil, conserve water, and improve resilience while helping communities meet changing needs.",
             },
-          ],
-        }),
-      });
+          },
+        ],
+      }),
+    });
     vi.stubGlobal("fetch", fetchMock);
     const response = await chatGemini(
       { apiKey: "test-key", model: "gemini-test" },
