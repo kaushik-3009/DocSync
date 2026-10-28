@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Postgres 16 with pgvector, for semantic search. (Switching an existing
+    # volume from the alpine image can invalidate text indexes because the
+    # C library differs; recreate the volume or REINDEX after switching.)
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-collab}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -34,9 +37,9 @@ services:
       retries: 10
 
   # Two server replicas sharing the same Postgres and Redis, fronted by
-  # nginx with no sticky sessions — this is the local proof that Phase 4's
-  # Redis fanout actually makes it safe for a load balancer to route two
-  # requests for the same page to two different processes.
+  # nginx with no sticky sessions — the local proof that the outbox/Redis
+  # fanout makes it safe to route collaborators on one page to different
+  # processes.
   server-a: &server
     build:
       context: .
@@ -62,7 +65,7 @@ services:
       # rather than nginx's own container IP for every request.
       TRUST_PROXY: "1"
       LOG_LEVEL: info
-      # Distributed tracing (Phase 9): spans are always created regardless of
+      # Distributed tracing: spans are always created regardless of
       # this var (see src/tracing/tracer.ts) — setting it is what makes them
       # actually go somewhere. Both replicas point at the same collector, so
       # one edit's trace (WS message on server-a -> Postgres -> Redis fanout
@@ -120,7 +123,7 @@ services:
     mem_limit: 128m
     cpus: 0.5
 
-  # Observability (Phase 7): Prometheus scrapes each server replica's /metrics
+  # Observability: Prometheus scrapes each server replica's /metrics
   # directly by service name — Grafana then points at Prometheus as its
   # datasource. Neither is required for the app itself to run; this is purely
   # for watching it.
@@ -142,7 +145,7 @@ services:
     depends_on:
       - prometheus
 
-  # Distributed tracing (Phase 9): a single all-in-one image bundles the
+  # Distributed tracing: a single all-in-one image bundles the
   # collector (receiving OTLP on 4318), storage (in-memory — fine for local
   # inspection, not for a real deployment), and the query UI on 16686. Not
   # required for the app to run, same as Prometheus/Grafana.

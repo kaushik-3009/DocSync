@@ -65,10 +65,12 @@ export function WebhookSection({ pageId }: { pageId: string }) {
         </div>
       </form>
       {secret && (
-        <div className="public-link-fresh">
-          <input readOnly value={secret} aria-label="Webhook signing secret" onFocus={(event) => event.currentTarget.select()} />
-          <span className="public-links-hint">Save this signing secret now; it won't be shown again.</span>
-        </div>
+        <>
+          <p className="public-links-hint">Save this signing secret now; it won't be shown again.</p>
+          <div className="public-link-fresh">
+            <input readOnly value={secret} aria-label="Webhook signing secret" onFocus={(event) => event.currentTarget.select()} />
+          </div>
+        </>
       )}
       {message && (
         <p className={`share-invite-message ${message.error ? "is-error" : ""}`} role={message.error ? "alert" : "status"}>

@@ -1828,8 +1828,8 @@ input::placeholder {
 
 .authorship-legend {
   list-style: none;
-  margin: 0 0 1rem;
-  padding: 0;
+  margin: 0;
+  padding: 0.75rem 1rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
@@ -1856,7 +1856,7 @@ input::placeholder {
   max-height: 60vh;
   overflow-y: auto;
   border-top: 1px solid var(--color-border);
-  padding-top: 0.75rem;
+  padding: 0.25rem 1rem 1rem;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -1928,8 +1928,11 @@ input::placeholder {
 /* Public links */
 .public-links {
   border-top: 1px solid var(--color-border);
-  margin-top: 1rem;
-  padding-top: 1rem;
+  padding: 0.9rem 1rem 1rem;
+}
+
+.public-links .share-invite-form {
+  padding: 0;
 }
 
 .public-links-hint {
@@ -2035,4 +2038,14 @@ input::placeholder {
   font-size: 0.8rem;
   margin: 0.25rem 0 0;
   width: 100%;
+}
+
+.search-result-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.share-section-title {
+  font-weight: 600;
+  font-size: 0.82rem;
 }

@@ -37,7 +37,7 @@ export function PublicLinkSection({ pageId }: { pageId: string }) {
   return (
     <section className="public-links" aria-label="Public links">
       <div className="share-invite-heading">
-        <span>Public read-only link</span>
+        <span className="share-section-title">Public read-only link</span>
         <button type="button" className="share-invite-button" onClick={() => void create()}>
           Create link
         </button>

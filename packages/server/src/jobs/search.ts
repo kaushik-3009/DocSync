@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 
 export interface SearchHit {
   pageId: string;
+  title: string | null;
   snippet: string;
 }
 
@@ -13,16 +14,18 @@ export interface SearchHit {
  * can't otherwise access.
  */
 export async function searchPages(pool: Pool, query: string, userId: string | null): Promise<SearchHit[]> {
-  const result = await pool.query<{ page_id: string; content: string }>(
-    `SELECT page_id, content FROM search_index
-     WHERE content ILIKE $1
-       AND ($2::text IS NULL OR page_id IN (SELECT page_id FROM page_roles WHERE user_id = $2))
-     ORDER BY updated_at DESC
+  const result = await pool.query<{ page_id: string; title: string | null; content: string }>(
+    `SELECT s.page_id, d.title, s.content FROM search_index s
+     LEFT JOIN documents d ON d.id = s.page_id
+     WHERE s.content ILIKE $1
+       AND ($2::text IS NULL OR s.page_id IN (SELECT page_id FROM page_roles WHERE user_id = $2))
+     ORDER BY s.updated_at DESC
      LIMIT 50`,
     [`%${query}%`, userId]
   );
   return result.rows.map((row) => ({
     pageId: row.page_id,
+    title: row.title,
     snippet: row.content.length > 160 ? row.content.slice(0, 160) + "…" : row.content,
   }));
 }

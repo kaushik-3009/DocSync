@@ -70,7 +70,7 @@ export function SearchOverlay({ onNavigate, onClose }: { onNavigate: (pageId: st
       const request =
         mode === "keyword"
           ? searchPages(trimmed).then((res) =>
-              res.hits.map((hit) => ({ key: hit.pageId, pageId: hit.pageId, label: hit.pageId, snippet: hit.snippet }))
+              res.hits.map((hit) => ({ key: hit.pageId, pageId: hit.pageId, label: hit.title ?? hit.pageId, snippet: hit.snippet }))
             )
           : semanticSearch(trimmed).then((res) =>
               res.hits.map((hit, index) => ({ key: `${hit.pageId}-${index}`, pageId: hit.pageId, label: hit.title, snippet: hit.content }))
@@ -190,7 +190,7 @@ export function SearchOverlay({ onNavigate, onClose }: { onNavigate: (pageId: st
                     onMouseEnter={() => setHighlight(i)}
                     onClick={() => select(row.pageId)}
                   >
-                    <span className="search-result-page-id">{row.label}</span>
+                    <span className="search-result-title">{row.label}</span>
                     <span className="search-result-snippet">
                       {row.snippet.length > 160 ? `${row.snippet.slice(0, 160)}…` : row.snippet}
                     </span>

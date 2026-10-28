@@ -92,6 +92,7 @@ export function restoreVersion(pageId: string, seq: number): Promise<{ pageId: s
 
 export interface SearchHit {
   pageId: string;
+  title: string | null;
   snippet: string;
 }
 

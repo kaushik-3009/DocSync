@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { pickPresenceColor } from "@docsync/shared";
 import { fetchAuthorship, type AuthorshipSpan, type PageAuthorship } from "./api.js";
 
 const UNKNOWN_COLOR = "#9a9a92";
+/** Assigned by contribution rank rather than hashed from the user id, so the
+ *  people on one page always get distinct colours. */
+const AUTHOR_COLORS = ["#e8590c", "#2f9e44", "#1c7ed6", "#ae3ec9", "#f08c00", "#0c8599", "#e03131", "#5c7cfa"];
 
-function colorFor(userId: string | null): string {
-  return userId ? pickPresenceColor(userId) : UNKNOWN_COLOR;
-}
-
-function Spans({ spans }: { spans: AuthorshipSpan[] }) {
+function Spans({ spans, colorFor }: { spans: AuthorshipSpan[]; colorFor: (userId: string | null) => string }) {
   return (
     <>
       {spans.map((span, index) => (
@@ -43,6 +41,12 @@ export function AuthorshipPanel({ pageId, onClose }: { pageId: string; onClose: 
   }, [pageId, onClose]);
 
   const total = data?.authors.reduce((sum, author) => sum + author.characters, 0) ?? 0;
+  const colors = new Map(
+    (data?.authors ?? [])
+      .filter((author) => author.userId)
+      .map((author, index) => [author.userId, AUTHOR_COLORS[index % AUTHOR_COLORS.length]!])
+  );
+  const colorFor = (userId: string | null) => (userId ? (colors.get(userId) ?? UNKNOWN_COLOR) : UNKNOWN_COLOR);
 
   return (
     <div className="share-panel-overlay" onMouseDown={onClose}>
@@ -83,14 +87,14 @@ export function AuthorshipPanel({ pageId, onClose }: { pageId: string; onClose: 
             <article className="authorship-document">
               {data.title.length > 0 && (
                 <h2>
-                  <Spans spans={data.title} />
+                  <Spans spans={data.title} colorFor={colorFor} />
                 </h2>
               )}
               {data.blocks
                 .filter((block) => block.spans.length > 0)
                 .map((block) => (
                   <p key={block.blockId}>
-                    <Spans spans={block.spans} />
+                    <Spans spans={block.spans} colorFor={colorFor} />
                   </p>
                 ))}
               {data.blocks.every((block) => block.spans.length === 0) && <p className="share-panel-message">This page has no text yet.</p>}
