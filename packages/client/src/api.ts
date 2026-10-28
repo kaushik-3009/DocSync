@@ -380,3 +380,31 @@ export function deleteWebhook(pageId: string, webhookId: string): Promise<{ dele
 export function pingWebhook(pageId: string, webhookId: string): Promise<{ deliveryId: string }> {
   return postJson(`/pages/${pageId}/webhooks/${webhookId}/ping`, {});
 }
+
+export const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** Approves an image upload, sends the bytes where the server says (S3 or the
+ *  gateway itself), and returns the upload id to store on the block. */
+export async function uploadImage(pageId: string, file: File): Promise<string> {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) throw new ApiError("Use a PNG, JPEG, GIF or WebP image.");
+  if (file.size > MAX_IMAGE_BYTES) throw new ApiError("Images can be at most 5 MB.");
+  const { uploadId, target } = await postJson<{
+    uploadId: string;
+    target: { method: string; url: string; headers: Record<string, string> };
+  }>(`/pages/${pageId}/uploads`, { contentType: file.type, size: file.size });
+  // Our bearer token goes only to our own API, never to S3.
+  const toOwnApi = new URL(target.url).origin === new URL(httpBase()).origin;
+  const token = toOwnApi ? await getFreshToken() : null;
+  const res = await fetch(target.url, {
+    method: target.method,
+    headers: { ...target.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: file,
+  });
+  if (!res.ok) throw new ApiError(`image upload failed with HTTP ${res.status}`);
+  return uploadId;
+}
+
+export function fetchImageUrl(pageId: string, uploadId: string): Promise<{ url: string; expiresInSeconds: number }> {
+  return apiFetch(`/pages/${pageId}/uploads/${uploadId}/url`);
+}

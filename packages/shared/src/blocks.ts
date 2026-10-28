@@ -25,7 +25,7 @@ import { computeTextDiff, type DeltaOp } from "./delta.js";
  * source of truth.
  */
 
-export type BlockType = "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code";
+export type BlockType = "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code" | "image";
 
 export type CodeLanguage = "javascript" | "python" | "plaintext";
 
@@ -96,6 +96,18 @@ export function setBlockChecked(doc: Y.Doc, blockId: string, checked: boolean): 
   const block = getBlocksMap(doc).get(blockId);
   if (!block) return;
   doc.transact(() => block.set("checked", checked));
+}
+
+/** Only meaningful for `type: "image"` blocks: the upload holding the image.
+ *  Stores an id rather than a URL — image URLs are short-lived and signed,
+ *  issued per viewer after an access check. */
+export function setBlockImage(doc: Y.Doc, blockId: string, uploadId: string | null): void {
+  const block = getBlocksMap(doc).get(blockId);
+  if (!block) return;
+  doc.transact(() => {
+    block.set("type", "image");
+    block.set("uploadId", uploadId);
+  });
 }
 
 /** Only meaningful for `type: "code"` blocks — which syntax highlighting
@@ -325,6 +337,8 @@ export interface SerializedBlock {
   text: string;
   checked: boolean;
   language: CodeLanguage;
+  /** Set for `type: "image"` blocks. */
+  uploadId: string | null;
   children: SerializedBlock[];
 }
 
@@ -337,6 +351,7 @@ function serializeBlock(blocksMap: Y.Map<Y.Map<unknown>>, id: string): Serialize
     text: (block?.get("text") as Y.Text | undefined)?.toString() ?? "",
     checked: (block?.get("checked") as boolean) ?? false,
     language: (block?.get("language") as CodeLanguage) ?? "javascript",
+    uploadId: (block?.get("uploadId") as string | undefined) ?? null,
     children: childIds.map((childId) => serializeBlock(blocksMap, childId)),
   };
 }
@@ -374,6 +389,7 @@ function serializeBlockWithDelta(blocksMap: Y.Map<Y.Map<unknown>>, id: string): 
     delta: ytext ? (ytext.toDelta() as DeltaOp[]) : [],
     checked: (block?.get("checked") as boolean) ?? false,
     language: (block?.get("language") as CodeLanguage) ?? "javascript",
+    uploadId: (block?.get("uploadId") as string | undefined) ?? null,
     children: childIds.map((childId) => serializeBlockWithDelta(blocksMap, childId)),
   };
 }
@@ -459,6 +475,7 @@ function restoreBlockContent(blocksMap: Y.Map<Y.Map<unknown>>, snapshotBlock: Se
     block = createBlockMap({ type: snapshotBlock.type, text: snapshotBlock.text });
     block.set("checked", snapshotBlock.checked);
     block.set("language", snapshotBlock.language);
+    if (snapshotBlock.uploadId) block.set("uploadId", snapshotBlock.uploadId);
     blocksMap.set(snapshotBlock.id, block);
     return;
   }
@@ -467,6 +484,7 @@ function restoreBlockContent(blocksMap: Y.Map<Y.Map<unknown>>, snapshotBlock: Se
   if (current.type !== snapshotBlock.type) block.set("type", snapshotBlock.type);
   if (current.checked !== snapshotBlock.checked) block.set("checked", snapshotBlock.checked);
   if (current.language !== snapshotBlock.language) block.set("language", snapshotBlock.language);
+  if (current.uploadId !== snapshotBlock.uploadId) block.set("uploadId", snapshotBlock.uploadId);
   if (current.text !== snapshotBlock.text) {
     const ytext = block.get("text") as Y.Text;
     const diff = computeTextDiff(current.text, snapshotBlock.text);

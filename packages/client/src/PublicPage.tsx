@@ -48,6 +48,9 @@ function Block({ block }: { block: SerializedBlockWithDelta }) {
       );
     case "canvas":
       return <p className="public-page-muted">(Canvas — open the page in DocSync to view drawings.)</p>;
+    case "image":
+      // Image URLs are signed per signed-in viewer; public links show text only.
+      return <p className="public-page-muted">(Image — open the page in DocSync to view it.)</p>;
     default:
       return (
         <>

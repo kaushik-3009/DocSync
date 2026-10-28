@@ -22,7 +22,9 @@ import {
 } from "./rate-limit/limiters.js";
 import { loadRuntimeConfig } from "./runtime-config.js";
 import { NotificationGateway } from "./notifications/gateway.js";
+import { createHmac } from "node:crypto";
 import { buildApp } from "./http/app.js";
+import { createUploadStorage } from "./uploads/storage.js";
 import { createSafeAgent } from "./webhooks/safe-fetch.js";
 import { loadWebhookPolicy } from "./webhooks/policy.js";
 import { AuthorshipStore } from "./authorship/store.js";
@@ -148,6 +150,14 @@ const app = await buildApp({
   pingRedis: broadcasterPub ? () => broadcasterPub!.ping().then(() => true) : null,
   notifyUser: async (userId) => notificationGateway?.publish(userId),
   webhookPolicy,
+  uploadStorage: pool
+    ? await createUploadStorage(
+        pool,
+        createHmac("sha256", config.jwtSecret ?? "local-dev")
+          .update("uploads")
+          .digest("hex")
+      )
+    : null,
   maxBodyBytes: Number(process.env.MAX_HTTP_BODY_BYTES ?? 65_536),
 });
 

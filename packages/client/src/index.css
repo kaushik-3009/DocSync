@@ -2006,3 +2006,33 @@ input::placeholder {
   white-space: nowrap;
   min-width: 0;
 }
+
+/* Image blocks */
+.image-block {
+  margin: 0;
+}
+
+.image-block img {
+  max-width: 100%;
+  border-radius: 6px;
+  display: block;
+}
+
+.image-block-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.image-block-error {
+  color: var(--color-danger);
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0;
+  width: 100%;
+}

@@ -22,6 +22,7 @@ const MIGRATIONS = [
   "012_authorship.sql",
   "013_share_links.sql",
   "014_webhooks.sql",
+  "015_uploads.sql",
 ];
 
 /** Features whose schema depends on a Postgres extension. Each file runs as

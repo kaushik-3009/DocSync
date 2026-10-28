@@ -163,6 +163,7 @@ describe.skipIf(!realPostgres)("semantic index (pgvector)", () => {
       notifyUser: async () => undefined,
       maxBodyBytes: 65_536,
       webhookPolicy: { allowPrivateNetworks: false, allowInsecure: false },
+      uploadStorage: null,
     });
     const providerBodies: string[] = [];
     vi.stubGlobal(

@@ -227,3 +227,26 @@ test("edits trigger a signed webhook the receiver can verify", async ({ browser 
     await new Promise((resolve) => receiver.close(resolve));
   }
 });
+
+test("an image uploaded by one collaborator renders for another", async ({ browser }) => {
+  const owner = await registerUser("photographer");
+  const editor = await registerUser("reviewer");
+  const pageId = await createDocument(owner, "Moodboard");
+  await share(owner, pageId, editor, "editor");
+  const ownerPage = await openPage(await signedInContext(browser, owner), pageId);
+  const editorPage = await openPage(await signedInContext(browser, editor), pageId);
+
+  await ownerPage.locator("[data-placeholder=\"Type '/' for commands\"]").first().click();
+  await ownerPage.keyboard.type("/image");
+  await ownerPage.keyboard.press("Enter");
+  // A real 1x1 PNG; the server checks the magic bytes match the type.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+  await ownerPage.locator('input[type="file"]').setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: png });
+
+  for (const page of [ownerPage, editorPage]) {
+    const image = page.locator(".image-block img");
+    await expect(image).toBeVisible();
+    // Decoded by the browser, not just present in the DOM.
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+  }
+});

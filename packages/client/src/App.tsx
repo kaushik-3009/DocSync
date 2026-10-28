@@ -26,6 +26,7 @@ import { RichText } from "./RichText.js";
 // page load costs everyone for a feature most sessions never touch.
 const CanvasBlock = lazy(() => import("./CanvasBlock.js").then((m) => ({ default: m.CanvasBlock })));
 const CodeBlock = lazy(() => import("./CodeBlock.js").then((m) => ({ default: m.CodeBlock })));
+const ImageBlock = lazy(() => import("./ImageBlock.js").then((m) => ({ default: m.ImageBlock })));
 import { flattenBlockIds } from "./blockTree.js";
 import { handleBlockKeyDown } from "./keyboard.js";
 import { requestFocus, getBlockElement } from "./blockFocus.js";
@@ -561,6 +562,7 @@ export function App() {
               <div className="doc-body">
                 {blocks.map((block) => (
                   <BlockRow
+                    pageId={pageId}
                     key={block.id}
                     block={block}
                     depth={0}
@@ -738,7 +740,9 @@ function BlockRow({
   onRemoveComment,
   mentionEmails,
   canEdit,
+  pageId,
 }: {
+  pageId: string;
   block: SerializedBlock;
   depth: number;
   doc: Y.Doc;
@@ -772,7 +776,7 @@ function BlockRow({
   const isTodo = block.type === "todo";
   const isDone = isTodo && block.checked;
 
-  const isTextBlock = block.type !== "canvas" && block.type !== "code";
+  const isTextBlock = block.type !== "canvas" && block.type !== "code" && block.type !== "image";
   const rawSlashQuery = isTextBlock && block.text.startsWith("/") ? block.text.slice(1) : null;
   const slashQuery = slashDismissed ? null : rawSlashQuery;
   const slashFiltered = slashQuery !== null ? filterBlockTypeOptions(slashQuery) : [];
@@ -818,7 +822,7 @@ function BlockRow({
     // Specialized blocks own a Y.Text for their editor, but continuing below
     // them must always create a normal paragraph. Splitting the source text
     // would preserve `code`/`canvas` and duplicate the specialized block.
-    if (block.type === "code" || block.type === "canvas") {
+    if (block.type === "code" || block.type === "canvas" || block.type === "image") {
       if (insertBlockAfter(doc, block.id, newId, "paragraph")) {
         const newYText = getBlockText(doc, newId);
         if (newYText) requestFocus(newYText, 0);
@@ -868,7 +872,7 @@ function BlockRow({
         {block.type === "bullet" && <span aria-hidden="true">•</span>}
 
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-          {block.type === "canvas" || block.type === "code" || !blockText ? null : (
+          {block.type === "canvas" || block.type === "code" || block.type === "image" || !blockText ? null : (
             <RichText
               doc={doc}
               ytext={blockText}
@@ -950,6 +954,18 @@ function BlockRow({
           )}
         </div>
       )}
+      {block.type === "image" && (
+        <div style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}>
+          <Suspense fallback={<div className="embed-card-loading">Loading image…</div>}>
+            <ImageBlock doc={doc} blockId={block.id} pageId={pageId} uploadId={block.uploadId} readOnly={!canEdit} />
+          </Suspense>
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Continue with text below
+            </button>
+          )}
+        </div>
+      )}
       {block.type === "code" && (
         <div style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}>
           <Suspense fallback={<div className="embed-card-loading">Loading editor…</div>}>
@@ -985,6 +1001,7 @@ function BlockRow({
       )}
       {block.children.map((child) => (
         <BlockRow
+          pageId={pageId}
           key={child.id}
           block={child}
           depth={depth + 1}

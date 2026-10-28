@@ -10,4 +10,5 @@ export const BLOCK_TYPE_OPTIONS: Array<{ type: BlockType; label: string; icon: s
   { type: "todo", label: "To-do", icon: "☐" },
   { type: "canvas", label: "Canvas", icon: "▦" },
   { type: "code", label: "Code", icon: "</>" },
+  { type: "image", label: "Image", icon: "🖼" },
 ];

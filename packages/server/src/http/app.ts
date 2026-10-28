@@ -22,6 +22,7 @@ import { authorshipRoutes } from "./routes/authorship.js";
 import { workspaceRoutes } from "./routes/workspace.js";
 import { publicLinkRoutes } from "./routes/public-links.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { uploadRoutes } from "./routes/uploads.js";
 
 export type App = FastifyInstance<RawServerDefault, IncomingMessage, ServerResponse, FastifyBaseLogger, ZodTypeProvider>;
 
@@ -62,7 +63,7 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   // origin allowlist — no credentials mode.
   await app.register(cors, {
     origin: (origin, callback) => callback(null, !origin || deps.config.allowedOrigins.includes(origin) ? (origin ?? false) : false),
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Request-ID"],
     exposedHeaders: ["X-Request-ID"],
   });
@@ -132,6 +133,7 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   await app.register(workspaceRoutes, routeDeps);
   await app.register(publicLinkRoutes, routeDeps);
   await app.register(webhookRoutes, routeDeps);
+  await app.register(uploadRoutes, routeDeps);
 
   app.get("/openapi.json", { schema: { hide: true } }, async () => app.swagger());
   return app;

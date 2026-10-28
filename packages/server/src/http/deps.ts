@@ -9,6 +9,7 @@ import type { ExportStorage } from "../exports/storage.js";
 import type { AuthorshipStore } from "../authorship/store.js";
 import type { SemanticIndex } from "../search/semantic.js";
 import type { WebhookPolicy } from "../webhooks/policy.js";
+import type { UploadStorage } from "../uploads/storage.js";
 
 /**
  * Everything the HTTP app needs, injected so tests can build the app against
@@ -41,4 +42,5 @@ export interface AppDeps {
   notifyUser: (userId: string) => Promise<void>;
   maxBodyBytes: number;
   webhookPolicy: WebhookPolicy;
+  uploadStorage: UploadStorage | null;
 }

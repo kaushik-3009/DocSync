@@ -22,7 +22,7 @@ describe("Gemini assistant boundary", () => {
         prompt: "Summarize",
         title: "Doc",
         role: "viewer",
-        blocks: [{ id: "b1", type: "paragraph", text: "hello", checked: false, language: "plaintext", children: [] }],
+        blocks: [{ id: "b1", type: "paragraph", text: "hello", checked: false, language: "plaintext", uploadId: null, children: [] }],
       }
     );
     expect(answer).toBe("A concise summary.");
@@ -72,7 +72,7 @@ describe("Gemini assistant boundary", () => {
         prompt: "Add a Python hello world",
         title: "Doc",
         role: "owner",
-        blocks: [{ id: "b1", type: "code", text: "", checked: false, language: "python", children: [] }],
+        blocks: [{ id: "b1", type: "code", text: "", checked: false, language: "python", uploadId: null, children: [] }],
       }
     );
     expect(response.kind).toBe("edit_plan");
@@ -122,7 +122,9 @@ describe("Gemini assistant boundary", () => {
         prompt: "Write an essay about agriculture below the current content",
         title: "Doc",
         role: "owner",
-        blocks: [{ id: "b1", type: "paragraph", text: "Current content", checked: false, language: "plaintext", children: [] }],
+        blocks: [
+          { id: "b1", type: "paragraph", text: "Current content", checked: false, language: "plaintext", uploadId: null, children: [] },
+        ],
       }
     );
     expect(response).toMatchObject({

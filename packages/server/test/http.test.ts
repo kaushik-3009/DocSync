@@ -41,6 +41,7 @@ async function build(overrides: { httpPoints?: number } = {}) {
     notifyUser: async () => undefined,
     maxBodyBytes: 65_536,
     webhookPolicy: { allowPrivateNetworks: false, allowInsecure: false },
+    uploadStorage: null,
   });
 }
 
@@ -220,6 +221,8 @@ describe("HTTP API", () => {
     expect(preflight.statusCode).toBe(204);
     expect(preflight.headers["access-control-allow-origin"]).toBe(ORIGIN);
     expect(String(preflight.headers["access-control-allow-methods"])).toContain("DELETE");
+    // Local image uploads PUT bytes to the API.
+    expect(String(preflight.headers["access-control-allow-methods"])).toContain("PUT");
     const foreign = await app.inject({
       method: "OPTIONS",
       url: "/documents",
