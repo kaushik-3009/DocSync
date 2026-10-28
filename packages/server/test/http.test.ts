@@ -7,6 +7,7 @@ import { buildApp, type App } from "../src/http/app.js";
 import { PageStore } from "../src/persistence/page-store.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { PostgresExportStorage } from "../src/exports/storage.js";
+import { AuthorshipStore } from "../src/authorship/store.js";
 import { createHttpLimiter, createLoginLimiter, createRegisterLimiter } from "../src/rate-limit/limiters.js";
 import { loadRuntimeConfig } from "../src/runtime-config.js";
 
@@ -28,6 +29,7 @@ async function build(overrides: { httpPoints?: number } = {}) {
     jobQueues: null,
     mentionsStore: null,
     exportStorage: new PostgresExportStorage(pool),
+    authorship: new AuthorshipStore(pool),
     jwtSecret: JWT_SECRET,
     limiters: {
       http: createHttpLimiter(null, overrides.httpPoints ?? 1_000),

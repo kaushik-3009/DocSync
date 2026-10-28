@@ -32,6 +32,7 @@ import { requestFocus, getBlockElement } from "./blockFocus.js";
 import { SlashMenu, filterBlockTypeOptions } from "./SlashMenu.js";
 import { BlockGutterMenu } from "./BlockGutterMenu.js";
 import { VersionHistoryPanel } from "./VersionHistoryPanel.js";
+import { AuthorshipPanel } from "./AuthorshipPanel.js";
 import { SearchOverlay } from "./SearchOverlay.js";
 import { MentionTextInput } from "./MentionTextInput.js";
 import { formatRelativeTime } from "./relativeTime.js";
@@ -110,6 +111,8 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showAuthorship, setShowAuthorship] = useState(false);
+  const closeAuthorship = useCallback(() => setShowAuthorship(false), []);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
@@ -167,6 +170,7 @@ export function App() {
   // would otherwise show stale content mid-transition.
   useEffect(() => {
     setShowVersionHistory(false);
+    setShowAuthorship(false);
     setShowSharePanel(false);
     setPageRole(null);
   }, [pageId]);
@@ -462,6 +466,9 @@ export function App() {
           <button className="toolbar-btn" onClick={() => setShowVersionHistory(true)}>
             History
           </button>
+          <button className="toolbar-btn" onClick={() => setShowAuthorship(true)} disabled={!pageId}>
+            Authors
+          </button>
           <button className="toolbar-btn" onClick={() => setShowAssistant((visible) => !visible)} disabled={!pageId}>
             Assistant
           </button>
@@ -521,6 +528,7 @@ export function App() {
       </div>
 
       {showVersionHistory && <VersionHistoryPanel pageId={pageId} onClose={() => setShowVersionHistory(false)} />}
+      {showAuthorship && <AuthorshipPanel pageId={pageId} onClose={closeAuthorship} />}
       {showSharePanel && (
         <SharePanel
           pageId={pageId}

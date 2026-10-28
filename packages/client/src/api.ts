@@ -253,3 +253,18 @@ export async function fetchExportDownload(exportId: string): Promise<{ url: stri
   const url = URL.createObjectURL(await res.blob());
   return { url, release: () => URL.revokeObjectURL(url) };
 }
+
+export interface AuthorshipSpan {
+  text: string;
+  userId: string | null;
+}
+
+export interface PageAuthorship {
+  title: AuthorshipSpan[];
+  blocks: Array<{ blockId: string; spans: AuthorshipSpan[] }>;
+  authors: Array<{ userId: string | null; email: string | null; characters: number }>;
+}
+
+export function fetchAuthorship(pageId: string): Promise<PageAuthorship> {
+  return apiFetch(`/pages/${pageId}/authorship`);
+}

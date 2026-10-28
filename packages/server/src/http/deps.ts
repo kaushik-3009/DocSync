@@ -6,6 +6,7 @@ import type { RoomRegistry } from "../room-registry.js";
 import type { JobQueues } from "../jobs/queues.js";
 import type { MentionsStore } from "../comments/mentions-store.js";
 import type { ExportStorage } from "../exports/storage.js";
+import type { AuthorshipStore } from "../authorship/store.js";
 
 /**
  * Everything the HTTP app needs, injected so tests can build the app against
@@ -22,6 +23,7 @@ export interface AppDeps {
   jobQueues: JobQueues | null;
   mentionsStore: MentionsStore | null;
   exportStorage: ExportStorage | null;
+  authorship: AuthorshipStore | null;
   /** Null only under the explicit development-only auth bypass. */
   jwtSecret: string | null;
   limiters: {

@@ -1820,3 +1820,47 @@ input::placeholder {
     order: 2;
   }
 }
+
+/* Authorship ("who wrote this") panel */
+.authorship-panel {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.authorship-legend {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.authorship-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.authorship-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+}
+
+.authorship-share {
+  color: var(--color-text-muted);
+}
+
+.authorship-document {
+  max-height: 60vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.75rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.authorship-span {
+  border-radius: 3px;
+}

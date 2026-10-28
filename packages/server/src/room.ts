@@ -9,6 +9,7 @@ import { MessageType, getCommentsMap, extractMentionEmails, type ClientMutationM
 import { childLogger } from "./logger.js";
 import type { PageStore } from "./persistence/page-store.js";
 import { updateFingerprint } from "./persistence/ops-log.js";
+import { clientIdsInUpdate } from "./authorship/attribution.js";
 import type { RoomBroadcaster } from "./redis/broadcaster.js";
 import type { JobQueues } from "./jobs/queues.js";
 import type { MentionsStore } from "./comments/mentions-store.js";
@@ -47,6 +48,8 @@ export interface RoomDependencies {
   mentionsStore?: MentionsStore | null;
   fanoutOutbox?: FanoutOutbox | null;
   mutationAuthorizer?: MutationAuthorizer | null;
+  /** Records which user each Yjs client id belongs to (authorship view). */
+  authorship?: { record(pageId: string, entries: Array<{ clientId: number; userId: string }>): Promise<void> } | null;
   /** Upper bounds for one group commit. */
   maxBatchUpdates?: number;
   maxBatchBytes?: number;
@@ -122,6 +125,9 @@ export class Room {
   private readonly mentionsStore: MentionsStore | null;
   private readonly fanoutOutbox: FanoutOutbox | null;
   private readonly mutationAuthorizer: MutationAuthorizer | null;
+  private readonly authorship: RoomDependencies["authorship"];
+  /** Client ids already attributed from this room, so each is written once. */
+  private readonly attributedClientIds = new Set<number>();
   private readonly maxBatchUpdates: number;
   private readonly maxBatchBytes: number;
   private lastPersistedSeq: number;
@@ -177,6 +183,7 @@ export class Room {
     this.mentionsStore = dependencies.mentionsStore ?? null;
     this.fanoutOutbox = dependencies.fanoutOutbox ?? null;
     this.mutationAuthorizer = dependencies.mutationAuthorizer ?? null;
+    this.authorship = dependencies.authorship ?? null;
     this.maxBatchUpdates = dependencies.maxBatchUpdates ?? DEFAULT_MAX_BATCH_UPDATES;
     this.maxBatchBytes = dependencies.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES;
     this.lastPersistedSeq = initialSeq;
@@ -681,6 +688,7 @@ export class Room {
         traceparent: mutation.traceparent ?? null,
       }))
     );
+    this.recordAuthorship(accepted);
     this.afterDurableCommit();
   }
 
@@ -762,6 +770,28 @@ export class Room {
     // With an outbox, cross-gateway publish happens once per commit (see
     // commitBatch); only the direct broadcaster publishes per update.
     if (publish && !this.fanoutOutbox) this.broadcaster?.publishUpdate(this.pageId, update);
+  }
+
+  /** Attributes new Yjs client ids in a committed batch to the users whose
+   *  sockets sent them. Best effort: authorship is informational and must
+   *  never fail or delay an edit. */
+  private recordAuthorship(committed: PendingMutation[]): void {
+    if (!this.authorship) return;
+    const entries: Array<{ clientId: number; userId: string }> = [];
+    for (const mutation of committed) {
+      const userId = mutation.source ? this.userIdsByConnection.get(mutation.source) : undefined;
+      if (!userId) continue;
+      for (const clientId of clientIdsInUpdate(mutation.update)) {
+        if (this.attributedClientIds.has(clientId)) continue;
+        this.attributedClientIds.add(clientId);
+        entries.push({ clientId, userId });
+      }
+    }
+    if (entries.length === 0) return;
+    this.authorship.record(this.pageId, entries).catch((err) => {
+      for (const entry of entries) this.attributedClientIds.delete(entry.clientId);
+      this.log.warn({ event: "record_authorship_failed", err }, "failed to record client authorship");
+    });
   }
 
   /** Side effects that need to happen once per commit, not once per update. */

@@ -23,6 +23,7 @@ import {
 import { loadRuntimeConfig } from "./runtime-config.js";
 import { NotificationGateway } from "./notifications/gateway.js";
 import { buildApp } from "./http/app.js";
+import { AuthorshipStore } from "./authorship/store.js";
 
 /**
  * Process bootstrap: connects to the configured services, builds the HTTP
@@ -88,6 +89,7 @@ if (config.redisUrl && pool && pageStore && exportStorage) {
 }
 
 const mentionsStore = pool ? new MentionsStore(pool) : null;
+const authorship = pool ? new AuthorshipStore(pool) : null;
 
 // Auth is required for normal startup; runtime-config only allows skipping it
 // under the explicit development bypass.
@@ -106,6 +108,7 @@ const registry = new RoomRegistry({
   mentionsStore,
   fanoutOutbox,
   mutationAuthorizer: pool ? (pageId, userIds) => getExistingRoles(pool!, pageId, userIds) : null,
+  authorship,
 });
 
 let notificationGateway: NotificationGateway | null = null;
@@ -120,6 +123,7 @@ const app = await buildApp({
   jobQueues,
   mentionsStore,
   exportStorage,
+  authorship,
   jwtSecret: auth?.jwtSecret ?? null,
   limiters: {
     http: createHttpLimiter(rateLimitRedis),

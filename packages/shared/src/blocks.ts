@@ -442,7 +442,7 @@ function restoreOrder(doc: Y.Doc, liveArray: Y.Array<string>, snapshotBlocks: Se
   // Reconcile order to match the snapshot exactly. Content/children are
   // already restored above, so this only ever moves *where* an id sits.
   const snapshotIds = snapshotBlocks.map((b) => b.id);
-  if (liveArray.toArray().join(" ") !== snapshotIds.join(" ")) {
+  if (liveArray.toArray().join("\u0000") !== snapshotIds.join("\u0000")) {
     liveArray.delete(0, liveArray.length);
     liveArray.push(snapshotIds);
   }

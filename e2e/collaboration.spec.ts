@@ -72,3 +72,26 @@ test("a user without access sees the access-denied state", async ({ browser }) =
   await expect(strangerPage.getByText(/access|permission/i).first()).toBeVisible();
   await expect(strangerPage.locator(".doc-title-field")).not.toHaveText("Private");
 });
+
+test("the Authors panel credits each collaborator's text", async ({ browser }) => {
+  const owner = await registerUser("ada");
+  const editor = await registerUser("grace");
+  const pageId = await createDocument(owner, "Credits");
+  await share(owner, pageId, editor, "editor");
+
+  const ownerPage = await openPage(await signedInContext(browser, owner), pageId);
+  const editorPage = await openPage(await signedInContext(browser, editor), pageId);
+  await ownerPage.locator(".doc-title-field").click();
+  await ownerPage.keyboard.type("Plan by Ada");
+  await expect(editorPage.locator(".doc-title-field")).toHaveText("Plan by Ada");
+  await editorPage.locator(".doc-title-field").click();
+  await editorPage.keyboard.press("End");
+  await editorPage.keyboard.type(", reviewed by Grace");
+  await expect(ownerPage.locator(".doc-title-field")).toHaveText("Plan by Ada, reviewed by Grace");
+
+  await ownerPage.getByRole("button", { name: "Authors" }).click();
+  const legend = ownerPage.getByRole("list", { name: "Contribution by author" });
+  await expect(legend).toContainText(owner.email);
+  await expect(legend).toContainText(editor.email);
+  await expect(ownerPage.locator(".authorship-document h2 .authorship-span")).toHaveCount(2);
+});
