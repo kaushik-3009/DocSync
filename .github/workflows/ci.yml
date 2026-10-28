@@ -31,13 +31,45 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      # Server tests run against pg-mem/ioredis-mock (see docs/TESTING.md) —
-      # no Postgres/Redis services needed here, same as local development.
+      # Fast path: pg-mem and ioredis-mock, no services needed.
       - name: Run tests
         run: pnpm test
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
+
+  integration:
+    name: Tests on real Postgres + Redis
+    runs-on: ubuntu-latest
+    # The same suite as above, pointed at real services: exercises row
+    # locking, advisory locks and SQL semantics pg-mem only approximates.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: collab_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run tests against services
+        run: pnpm test:integration
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/collab_test
+          TEST_REDIS_URL: redis://localhost:6379/15
 
   docker-build:
     name: Validate server Docker image

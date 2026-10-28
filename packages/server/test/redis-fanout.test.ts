@@ -1,4 +1,5 @@
-import RedisMock from "ioredis-mock";
+import type Redis from "ioredis";
+import { createTestRedis } from "./helpers/test-redis.js";
 import * as Y from "yjs";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
@@ -19,15 +20,15 @@ import type { PresenceState } from "@collab/shared";
  * no live Redis required, same rationale as pg-mem standing in for Postgres.
  */
 function makeInstance(pageStore: PageStore | null = null) {
-  const pub = new RedisMock();
-  const sub = new RedisMock();
+  const pub = createTestRedis();
+  const sub = createTestRedis();
   redisClients.push(pub, sub);
-  const broadcaster = new RedisRoomBroadcaster(pub as never, sub as never);
+  const broadcaster = new RedisRoomBroadcaster(pub, sub);
   const registry = new RoomRegistry({ pageStore, broadcaster });
   return { registry, broadcaster };
 }
 
-const redisClients: RedisMock[] = [];
+const redisClients: Redis[] = [];
 
 afterEach(() => {
   for (const client of redisClients.splice(0)) client.disconnect();
@@ -134,13 +135,13 @@ describe("Redis pub/sub fanout across instances", () => {
   });
 
   it("carries the durable operation sequence in an outbox-published Redis envelope", async () => {
-    const senderPub = new RedisMock();
-    const senderSub = new RedisMock();
-    const receiverPub = new RedisMock();
-    const receiverSub = new RedisMock();
+    const senderPub = createTestRedis();
+    const senderSub = createTestRedis();
+    const receiverPub = createTestRedis();
+    const receiverSub = createTestRedis();
     redisClients.push(senderPub, senderSub, receiverPub, receiverSub);
-    const sender = new RedisRoomBroadcaster(senderPub as never, senderSub as never);
-    const receiver = new RedisRoomBroadcaster(receiverPub as never, receiverSub as never);
+    const sender = new RedisRoomBroadcaster(senderPub, senderSub);
+    const receiver = new RedisRoomBroadcaster(receiverPub, receiverSub);
     const envelopeDoc = new Y.Doc();
     createBlock(envelopeDoc, "envelope-block", { type: "paragraph", text: "valid Yjs payload" });
     const update = Y.encodeStateAsUpdate(envelopeDoc);
@@ -159,10 +160,10 @@ describe("Redis pub/sub fanout across instances", () => {
   });
 
   it("delivers a committed outbox self-echo so a non-originating claimant can reconcile its room", async () => {
-    const pub = new RedisMock();
-    const sub = new RedisMock();
+    const pub = createTestRedis();
+    const sub = createTestRedis();
     redisClients.push(pub, sub);
-    const broadcaster = new RedisRoomBroadcaster(pub as never, sub as never);
+    const broadcaster = new RedisRoomBroadcaster(pub, sub);
     const envelopeDoc = new Y.Doc();
     createBlock(envelopeDoc, "self-echo-block", { type: "paragraph", text: "claimed by another worker" });
     const update = Y.encodeStateAsUpdate(envelopeDoc);

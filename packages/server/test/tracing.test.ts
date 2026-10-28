@@ -1,4 +1,5 @@
-import RedisMock from "ioredis-mock";
+import type Redis from "ioredis";
+import { createTestRedis } from "./helpers/test-redis.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { context, trace } from "@opentelemetry/api";
 import { createBlock } from "@collab/shared";
@@ -18,7 +19,7 @@ import { traced } from "../src/jobs/workers.js";
  * root spans.
  */
 describe("distributed tracing", () => {
-  const redisClients: RedisMock[] = [];
+  const redisClients: Redis[] = [];
 
   beforeEach(() => {
     testSpanExporter.reset();
@@ -76,16 +77,16 @@ describe("distributed tracing", () => {
   });
 
   it("continues the same trace across a Redis-fanned-out update to another instance (cross-process)", async () => {
-    const pub = new RedisMock();
-    const sub = new RedisMock();
+    const pub = createTestRedis();
+    const sub = createTestRedis();
     redisClients.push(pub, sub);
-    const broadcasterA = new RedisRoomBroadcaster(pub as never, sub as never);
+    const broadcasterA = new RedisRoomBroadcaster(pub, sub);
     const registryA = new RoomRegistry({ broadcaster: broadcasterA });
 
-    const pub2 = new RedisMock();
-    const sub2 = new RedisMock();
+    const pub2 = createTestRedis();
+    const sub2 = createTestRedis();
     redisClients.push(pub2, sub2);
-    const broadcasterB = new RedisRoomBroadcaster(pub2 as never, sub2 as never);
+    const broadcasterB = new RedisRoomBroadcaster(pub2, sub2);
     const registryB = new RoomRegistry({ broadcaster: broadcasterB });
 
     const roomA = await registryA.getOrCreateRoom("cross-instance-page");
