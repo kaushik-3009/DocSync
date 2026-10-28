@@ -19,6 +19,7 @@ import { historyRoutes } from "./routes/history.js";
 import { exportRoutes } from "./routes/exports.js";
 import { assistantRoutes } from "./routes/assistant.js";
 import { authorshipRoutes } from "./routes/authorship.js";
+import { workspaceRoutes } from "./routes/workspace.js";
 
 export type App = FastifyInstance<RawServerDefault, IncomingMessage, ServerResponse, FastifyBaseLogger, ZodTypeProvider>;
 
@@ -126,6 +127,7 @@ export async function buildApp(deps: AppDeps): Promise<App> {
   await app.register(exportRoutes, routeDeps);
   await app.register(assistantRoutes, routeDeps);
   await app.register(authorshipRoutes, routeDeps);
+  await app.register(workspaceRoutes, routeDeps);
 
   app.get("/openapi.json", { schema: { hide: true } }, async () => app.swagger());
   return app;

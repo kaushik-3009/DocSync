@@ -95,6 +95,7 @@ describe("authorship endpoint", () => {
       mentionsStore: null,
       exportStorage: null,
       authorship,
+      semanticIndex: null,
       jwtSecret: JWT_SECRET,
       limiters: { http: createHttpLimiter(null, 1_000), login: createLoginLimiter(null), register: createRegisterLimiter(null) },
       pingRedis: null,

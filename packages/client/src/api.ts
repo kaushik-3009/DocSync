@@ -268,3 +268,60 @@ export interface PageAuthorship {
 export function fetchAuthorship(pageId: string): Promise<PageAuthorship> {
   return apiFetch(`/pages/${pageId}/authorship`);
 }
+
+export interface SemanticHit {
+  pageId: string;
+  title: string;
+  content: string;
+  score: number;
+}
+
+export function semanticSearch(query: string): Promise<{ query: string; hits: SemanticHit[] }> {
+  return apiFetch(`/search/semantic?q=${encodeURIComponent(query)}`);
+}
+
+export interface Citation {
+  n: number;
+  pageId: string;
+  title: string;
+  snippet: string;
+}
+
+/** Streams a cited answer from POST /workspace/ask/stream (server-sent
+ *  events: citations, then deltas, then done or error). */
+export async function askWorkspace(
+  question: string,
+  handlers: { onCitations: (citations: Citation[]) => void; onDelta: (text: string) => void },
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await authorizedFetch("/workspace/ask/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new ApiError(body.error ?? `ask failed with HTTP ${res.status}`);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const event = /^event: (.*)$/m.exec(frame)?.[1];
+      const data = /^data: (.*)$/m.exec(frame)?.[1];
+      if (!event || data === undefined) continue;
+      const payload = JSON.parse(data);
+      if (event === "citations") handlers.onCitations(payload as Citation[]);
+      else if (event === "delta") handlers.onDelta((payload as { text: string }).text);
+      else if (event === "error") throw new ApiError((payload as { error: string }).error);
+      else if (event === "done") return;
+    }
+  }
+}

@@ -24,6 +24,8 @@ import { loadRuntimeConfig } from "./runtime-config.js";
 import { NotificationGateway } from "./notifications/gateway.js";
 import { buildApp } from "./http/app.js";
 import { AuthorshipStore } from "./authorship/store.js";
+import { SemanticIndex } from "./search/semantic.js";
+import { createEmbedder, loadEmbedderConfig } from "./ai/embeddings.js";
 
 /**
  * Process bootstrap: connects to the configured services, builds the HTTP
@@ -39,14 +41,16 @@ const SHUTDOWN_DRAIN_TIMEOUT_MS = Number(process.env.SHUTDOWN_DRAIN_TIMEOUT_MS ?
 let pool: Pool | null = null;
 let pageStore: PageStore | null = null;
 let exportStorage: ExportStorage | null = null;
+let semanticIndex: SemanticIndex | null = null;
 if (config.databaseUrl) {
   pool = new Pool({ connectionString: config.databaseUrl, max: Number(process.env.PG_POOL_MAX ?? 10) });
   // pg emits failures of idle clients on the pool; without a listener Node
   // treats them as uncaught and a transient DB blip would kill every room.
   pool.on("error", (err) => logger.error({ event: "postgres_pool_error", err }, "Postgres pool client error; retaining gateway process"));
-  await runMigrations(pool);
+  const features = await runMigrations(pool);
   pageStore = new PageStore(pool);
   exportStorage = await createExportStorage(pool);
+  if (features.semanticSearch) semanticIndex = new SemanticIndex(pool, createEmbedder(loadEmbedderConfig(process.env)));
   logger.info({ event: "persistence_enabled" }, "connected to Postgres, persistence enabled");
 } else {
   logger.warn({ event: "persistence_disabled" }, "DATABASE_URL not set — running in-memory only, documents will not survive a restart");
@@ -81,7 +85,7 @@ if (config.redisUrl && pool && pageStore && exportStorage) {
   jobsConnection = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
   jobQueues = new JobQueues(jobsConnection);
   if (process.env.RUN_WORKERS !== "false") {
-    stopWorkers = startWorkers(jobsConnection, pool, pageStore, exportStorage).close;
+    stopWorkers = startWorkers(jobsConnection, { pool, pageStore, exportStorage, semanticIndex }).close;
   }
   logger.info({ event: "jobs_enabled", inProcessWorkers: Boolean(stopWorkers) }, "background job queues enabled");
 } else {
@@ -124,6 +128,7 @@ const app = await buildApp({
   mentionsStore,
   exportStorage,
   authorship,
+  semanticIndex,
   jwtSecret: auth?.jwtSecret ?? null,
   limiters: {
     http: createHttpLimiter(rateLimitRedis),

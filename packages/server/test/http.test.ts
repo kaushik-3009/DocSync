@@ -30,6 +30,7 @@ async function build(overrides: { httpPoints?: number } = {}) {
     mentionsStore: null,
     exportStorage: new PostgresExportStorage(pool),
     authorship: new AuthorshipStore(pool),
+    semanticIndex: null,
     jwtSecret: JWT_SECRET,
     limiters: {
       http: createHttpLimiter(null, overrides.httpPoints ?? 1_000),

@@ -128,3 +128,35 @@ test("edits made offline survive closing the tab and sync on reconnect", async (
   await expect(ownerPage.locator(".doc-title-field")).toHaveText("Notes from the train");
   await expect(editorPage.locator(".doc-title-field")).toHaveText("Notes from the train");
 });
+
+test("meaning search ranks the page that is about the query first", async ({ browser }) => {
+  const owner = await registerUser("searcher");
+  const context = await signedInContext(browser, owner);
+  // Two pages, so ranking (not just "the only page") is what is tested.
+  for (const [title, body] of [
+    ["Team offsite", "Lunch options, the agenda, and who is bringing snacks to the offsite."],
+    ["Incident runbook", "When the primary database fails, promote the replica and repoint the gateways."],
+  ]) {
+    const page = await openPage(context, await createDocument(owner, title!));
+    await page.locator(".doc-title-field").click();
+    await page.keyboard.type(title!);
+    await page.locator("[data-placeholder=\"Type '/' for commands\"]").first().click();
+    await page.keyboard.type(body!);
+    await expect(page.getByText("Synced")).toBeVisible();
+    await page.close();
+  }
+
+  const page = await context.newPage();
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("tab", { name: "Meaning" }).click();
+  const input = page.getByRole("dialog", { name: "Search pages" }).locator("input");
+  // Indexing runs in a background job after the edits commit.
+  await expect(async () => {
+    await input.fill("");
+    await input.fill("database failover procedure");
+    await expect(page.locator(".search-result-item")).toHaveCount(2, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(page.locator(".search-result-item").first()).toContainText("Incident runbook");
+  await expect(page.locator(".search-result-item").nth(1)).toContainText("Team offsite");
+});

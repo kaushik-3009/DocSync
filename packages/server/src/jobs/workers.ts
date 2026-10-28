@@ -1,10 +1,12 @@
 import type { ExportStorage } from "../exports/storage.js";
-import { Worker } from "bullmq";
+import type { SemanticIndex } from "../search/semantic.js";
+import { Queue, Worker } from "bullmq";
 import type Redis from "ioredis";
 import type { Pool } from "pg";
 import type { PageStore } from "../persistence/page-store.js";
 import { SEARCH_INDEX_QUEUE, PREVIEW_QUEUE, PDF_EXPORT_QUEUE } from "./queues.js";
 import type { SearchIndexJobData, PreviewJobData, PdfExportJobData } from "./queues.js";
+import { processUntilClean, requeueIfDirty } from "./coalescing.js";
 import { processSearchIndexJob, processPreviewJob, processPdfExportJob } from "./processors.js";
 import { childLogger } from "../logger.js";
 import { jobsCompletedTotal, jobsFailedTotal } from "../metrics/registry.js";
@@ -38,22 +40,45 @@ export function traced<T>(name: string, traceparent: string | undefined, fn: () 
  * infra change (a second container running this same function), not a code
  * change to Room, the queues, or the processors.
  */
+export interface WorkerDependencies {
+  pool: Pool;
+  pageStore: PageStore;
+  exportStorage: ExportStorage;
+  /** Null when pgvector is unavailable; keyword indexing still runs. */
+  semanticIndex: SemanticIndex | null;
+}
+
 export function startWorkers(
   connection: Redis,
-  pool: Pool,
-  pageStore: PageStore,
-  exportStorage: ExportStorage
+  { pool, pageStore, exportStorage, semanticIndex }: WorkerDependencies
 ): { close(): Promise<void> } {
   const searchIndexWorker = new Worker<SearchIndexJobData>(
     SEARCH_INDEX_QUEUE,
-    async (job) => traced("job.process.search_index", job.data.traceparent, () => processSearchIndexJob(pool, pageStore, job.data.pageId)),
+    async (job) =>
+      traced("job.process.search_index", job.data.traceparent, () =>
+        processUntilClean(connection, SEARCH_INDEX_QUEUE, job.data.pageId, () =>
+          processSearchIndexJob(pool, pageStore, job.data.pageId, semanticIndex)
+        )
+      ),
     { connection }
   );
   const previewWorker = new Worker<PreviewJobData>(
     PREVIEW_QUEUE,
-    async (job) => traced("job.process.preview", job.data.traceparent, () => processPreviewJob(pool, pageStore, job.data.pageId)),
+    async (job) =>
+      traced("job.process.preview", job.data.traceparent, () =>
+        processUntilClean(connection, PREVIEW_QUEUE, job.data.pageId, () => processPreviewJob(pool, pageStore, job.data.pageId))
+      ),
     { connection }
   );
+
+  // Close the last gap: an edit that marked the page dirty after the
+  // processor's final check, while the job was still active.
+  const requeueQueues = {
+    search: new Queue(SEARCH_INDEX_QUEUE, { connection }),
+    preview: new Queue(PREVIEW_QUEUE, { connection }),
+  };
+  searchIndexWorker.on("completed", (job) => void requeueIfDirty(connection, requeueQueues.search, job.data.pageId).catch(() => undefined));
+  previewWorker.on("completed", (job) => void requeueIfDirty(connection, requeueQueues.preview, job.data.pageId).catch(() => undefined));
   const pdfExportWorker = new Worker<PdfExportJobData>(
     PDF_EXPORT_QUEUE,
     async (job) =>
@@ -76,6 +101,7 @@ export function startWorkers(
   return {
     async close() {
       await Promise.all([searchIndexWorker.close(), previewWorker.close(), pdfExportWorker.close()]);
+      await Promise.all([requeueQueues.search.close(), requeueQueues.preview.close()]);
     },
   };
 }

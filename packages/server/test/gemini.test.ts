@@ -79,7 +79,11 @@ describe("Gemini assistant boundary", () => {
     if (response.kind === "edit_plan") expect(response.plan.operations[0]).toMatchObject({ op: "replace_text", blockId: "b1" });
     const requestBody = String((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit)?.body);
     expect(requestBody).toContain("id=b1");
-    expect(requestBody).toContain('"response_format":{"type":"json_object"}');
+    // Structured output: the provider is constrained to the plan schema.
+    const format = JSON.parse(requestBody).response_format;
+    expect(format.type).toBe("json_schema");
+    expect(format.json_schema.strict).toBe(true);
+    expect(JSON.stringify(format.json_schema.schema)).toContain('"enum":["replace_text"]');
   });
 
   it("routes an explicit code-block request directly to content generation", async () => {

@@ -1,5 +1,15 @@
 import type { SerializedBlock } from "@collab/shared";
-import { parseAgentPlan, type AgentPlan } from "./agent.js";
+import { z } from "zod/v4";
+import { AGENT_PLAN_JSON_SCHEMA, agentPlanSchema, parseAgentPlan, providerJsonSchema, type AgentPlan } from "./agent.js";
+
+/** Unified chat reply: an answer, or a proposed (never applied) edit plan. */
+const CHAT_RESPONSE_JSON_SCHEMA = providerJsonSchema(
+  z.union([z.object({ kind: z.literal("answer"), answer: z.string() }), agentPlanSchema.extend({ kind: z.literal("edit_plan") })])
+);
+
+function structuredOutput(name: string, schema: Record<string, unknown>) {
+  return { type: "json_schema", json_schema: { name, strict: true, schema } };
+}
 
 export interface GeminiConfig {
   apiKey?: string;
@@ -134,7 +144,7 @@ export async function planGemini(
       model: config.model,
       temperature: 0.1,
       max_tokens: 1800,
-      response_format: { type: "json_object" },
+      response_format: structuredOutput("agent_plan", AGENT_PLAN_JSON_SCHEMA),
       messages: [
         {
           role: "system",
@@ -196,7 +206,7 @@ export async function chatGemini(
       model: config.model,
       temperature: 0.2,
       max_tokens: 1800,
-      response_format: { type: "json_object" },
+      response_format: structuredOutput("chat_response", CHAT_RESPONSE_JSON_SCHEMA),
       messages: [
         {
           role: "system",

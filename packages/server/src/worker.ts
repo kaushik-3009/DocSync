@@ -5,6 +5,8 @@ import { runMigrations } from "./persistence/db.js";
 import { PageStore } from "./persistence/page-store.js";
 import { startWorkers } from "./jobs/workers.js";
 import { createExportStorage } from "./exports/storage.js";
+import { SemanticIndex } from "./search/semantic.js";
+import { createEmbedder, loadEmbedderConfig } from "./ai/embeddings.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -12,10 +14,15 @@ if (!databaseUrl || !redisUrl) throw new Error("DATABASE_URL and REDIS_URL are r
 
 const pool = new Pool({ connectionString: databaseUrl });
 pool.on("error", (err) => logger.error({ event: "worker_postgres_pool_error", err }, "worker Postgres pool error"));
-await runMigrations(pool);
+const features = await runMigrations(pool);
 const pageStore = new PageStore(pool);
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
-const workers = startWorkers(connection, pool, pageStore, await createExportStorage(pool));
+const workers = startWorkers(connection, {
+  pool,
+  pageStore,
+  exportStorage: await createExportStorage(pool),
+  semanticIndex: features.semanticSearch ? new SemanticIndex(pool, createEmbedder(loadEmbedderConfig(process.env))) : null,
+});
 let shuttingDown = false;
 
 async function shutdown(): Promise<void> {

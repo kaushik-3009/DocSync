@@ -30,6 +30,10 @@ export async function createTestPool(): Promise<Pool> {
   if (url) {
     const schema = `test_${randomBytes(6).toString("hex")}`;
     const admin = new pg.Pool({ connectionString: url, max: 1 });
+    // Extensions are database-wide; keep pgvector in public (on the search
+    // path below) so dropping a test schema never drops it. Parallel test
+    // files may race to create it.
+    await admin.query("CREATE EXTENSION IF NOT EXISTS vector SCHEMA public").catch(() => undefined);
     await admin.query(`CREATE SCHEMA ${schema}`);
     await admin.end();
     createdSchemas.push(schema);

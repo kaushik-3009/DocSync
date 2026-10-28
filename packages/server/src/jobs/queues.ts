@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import type Redis from "ioredis";
 import { tracer } from "../tracing/tracer.js";
 import { currentTraceparent } from "../tracing/propagation.js";
+import { markDirty } from "./coalescing.js";
 
 export const SEARCH_INDEX_QUEUE = "search-index";
 export const PREVIEW_QUEUE = "preview";
@@ -36,24 +37,18 @@ export class JobQueues {
   private readonly preview: Queue<PreviewJobData>;
   private readonly pdfExport: Queue<PdfExportJobData>;
 
-  constructor(connection: Redis) {
+  constructor(private readonly connection: Redis) {
     this.searchIndex = new Queue(SEARCH_INDEX_QUEUE, { connection });
     this.preview = new Queue(PREVIEW_QUEUE, { connection });
     this.pdfExport = new Queue(PDF_EXPORT_QUEUE, { connection });
   }
 
-  /** Uses pageId as the BullMQ jobId: a page with edits arriving faster than the
-   *  job can process coalesces into a single pending re-index rather than queuing
-   *  one job per keystroke — BullMQ ignores add() calls that reuse an already
-   *  waiting/active job's id instead of erroring or duplicating. */
+  /** Coalesced per page (see coalescing.ts): bursts of edits collapse into
+   *  few runs, and an edit during a run is never lost. */
   async enqueueSearchIndex(pageId: string): Promise<void> {
     return tracer.startActiveSpan("job.enqueue.search_index", { attributes: { "collab.page_id": pageId } }, async (span) => {
       try {
-        await this.searchIndex.add(
-          "index",
-          { pageId, traceparent: currentTraceparent() ?? undefined },
-          { jobId: pageId, removeOnComplete: true, removeOnFail: 20 }
-        );
+        await markDirty(this.connection, this.searchIndex, pageId, { traceparent: currentTraceparent() ?? undefined });
       } finally {
         span.end();
       }
@@ -63,11 +58,7 @@ export class JobQueues {
   async enqueuePreview(pageId: string): Promise<void> {
     return tracer.startActiveSpan("job.enqueue.preview", { attributes: { "collab.page_id": pageId } }, async (span) => {
       try {
-        await this.preview.add(
-          "preview",
-          { pageId, traceparent: currentTraceparent() ?? undefined },
-          { jobId: pageId, removeOnComplete: true, removeOnFail: 20 }
-        );
+        await markDirty(this.connection, this.preview, pageId, { traceparent: currentTraceparent() ?? undefined });
       } finally {
         span.end();
       }

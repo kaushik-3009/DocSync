@@ -22,11 +22,17 @@ const MIGRATIONS = [
   "012_authorship.sql",
 ];
 
+/** Features whose schema depends on a Postgres extension. Each file runs as
+ * one implicit transaction, so a failure leaves nothing half-applied. */
+const OPTIONAL_MIGRATIONS = { semanticSearch: "optional/semantic_search.sql" } as const;
+
+export type OptionalFeatures = Record<keyof typeof OPTIONAL_MIGRATIONS, boolean>;
+
 /** Runs each migration file in order. Idempotent — every statement is `IF NOT EXISTS`.
  * Multiple gateway replicas can boot at the same time, so real Postgres gets
  * a process-independent advisory lock around the whole sequence. pg-mem does
  * not implement advisory locks; its test adapter continues without the lock. */
-export async function runMigrations(pool: Pool): Promise<void> {
+export async function runMigrations(pool: Pool): Promise<OptionalFeatures> {
   const client = await pool.connect();
   let lockHeld = false;
   try {
@@ -43,6 +49,18 @@ export async function runMigrations(pool: Pool): Promise<void> {
       await client.query(sql);
       log.info({ event: "migration_applied", file }, "applied migration");
     }
+    const features = {} as OptionalFeatures;
+    for (const [feature, file] of Object.entries(OPTIONAL_MIGRATIONS) as Array<[keyof OptionalFeatures, string]>) {
+      try {
+        await client.query(readFileSync(join(__dirname, "migrations", file), "utf8"));
+        features[feature] = true;
+        log.info({ event: "optional_migration_applied", file }, "applied optional migration");
+      } catch (err) {
+        features[feature] = false;
+        log.warn({ event: "optional_migration_skipped", file, err }, `${feature} unavailable: optional migration could not run`);
+      }
+    }
+    return features;
   } finally {
     if (lockHeld) await client.query("SELECT pg_advisory_unlock(734219581)").catch(() => undefined);
     client.release();

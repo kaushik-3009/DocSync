@@ -7,6 +7,7 @@ import type { JobQueues } from "../jobs/queues.js";
 import type { MentionsStore } from "../comments/mentions-store.js";
 import type { ExportStorage } from "../exports/storage.js";
 import type { AuthorshipStore } from "../authorship/store.js";
+import type { SemanticIndex } from "../search/semantic.js";
 
 /**
  * Everything the HTTP app needs, injected so tests can build the app against
@@ -24,6 +25,8 @@ export interface AppDeps {
   mentionsStore: MentionsStore | null;
   exportStorage: ExportStorage | null;
   authorship: AuthorshipStore | null;
+  /** Null when pgvector is unavailable. */
+  semanticIndex: SemanticIndex | null;
   /** Null only under the explicit development-only auth bypass. */
   jwtSecret: string | null;
   limiters: {

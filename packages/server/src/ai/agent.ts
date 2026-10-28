@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod/v4";
 import type * as Y from "yjs";
 import {
   createBlock,
@@ -28,6 +29,53 @@ export interface AgentPlan {
   operations: AgentOperation[];
 }
 
+const blockTypeSchema = z.enum(["paragraph", "heading", "todo", "bullet", "canvas", "code"]);
+const textSchema = z.string().max(12_000);
+
+/** The single definition of what the model may propose. It is sent to the
+ *  provider as a JSON Schema (structured output) and used to validate the
+ *  response, so the prompt, the provider and the server cannot disagree. */
+export const agentPlanSchema = z.object({
+  summary: z.string().max(500),
+  operations: z
+    .array(
+      z.union([
+        z.object({ op: z.literal("replace_text"), blockId: z.string(), text: textSchema }),
+        z.object({ op: z.literal("set_block_type"), blockId: z.string(), type: blockTypeSchema }),
+        z.object({ op: z.literal("set_checked"), blockId: z.string(), checked: z.boolean() }),
+        z.object({ op: z.literal("set_language"), blockId: z.string(), language: z.enum(["javascript", "python", "plaintext"]) }),
+        z.object({
+          op: z.literal("insert_block"),
+          afterBlockId: z.string().optional(),
+          type: blockTypeSchema,
+          text: textSchema.optional(),
+        }),
+        z.object({ op: z.literal("delete_block"), blockId: z.string() }),
+        z.object({ op: z.literal("set_title"), text: z.string().max(500) }),
+      ])
+    )
+    .max(20),
+});
+
+/** JSON Schema in the subset structured-output providers accept: no
+ *  `$schema`, and `enum` instead of `const`. */
+export function providerJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  const convert = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(convert);
+    if (!node || typeof node !== "object") return node;
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "$schema") continue;
+      if (key === "const") result.enum = [value];
+      else result[key] = convert(value);
+    }
+    return result;
+  };
+  return convert(z.toJSONSchema(schema)) as Record<string, unknown>;
+}
+
+export const AGENT_PLAN_JSON_SCHEMA = providerJsonSchema(agentPlanSchema);
+
 const blockTypes = new Set<BlockType>(["paragraph", "heading", "todo", "bullet", "canvas", "code"]);
 const languages = new Set<CodeLanguage>(["javascript", "python", "plaintext"]);
 
@@ -43,6 +91,14 @@ function normalizeBlockType(value: unknown): BlockType | null {
  * mutation vocabulary the server can validate and commit. The model never
  * gets to send a raw Yjs update or arbitrary JavaScript. */
 export function parseAgentPlan(raw: string): AgentPlan {
+  // Structured output normally yields an exact match.
+  try {
+    const strict = agentPlanSchema.safeParse(JSON.parse(raw));
+    if (strict.success) return { summary: strict.data.summary.trim() || "Proposed document changes", operations: strict.data.operations };
+  } catch {
+    // Not bare JSON (e.g. fenced); fall through to the tolerant parser.
+  }
+  // Tolerant path for model drift: fences, aliases, a single bare operation.
   const stripped = raw
     .trim()
     .replace(/^```(?:json)?\s*/i, "")

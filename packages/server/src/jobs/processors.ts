@@ -1,4 +1,5 @@
 import type { ExportStorage } from "../exports/storage.js";
+import type { SemanticIndex } from "../search/semantic.js";
 import { randomUUID } from "node:crypto";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
@@ -35,7 +36,12 @@ function extractPlainText(doc: Y.Doc): string {
     .trim();
 }
 
-export async function processSearchIndexJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<void> {
+export async function processSearchIndexJob(
+  pool: Pool,
+  pageStore: PageStore,
+  pageId: string,
+  semanticIndex: SemanticIndex | null = null
+): Promise<void> {
   const doc = await pageStore.replayAt(pageId, await pageStore.currentSeq(pageId));
   const content = extractPlainText(doc);
   await pool.query(
@@ -44,6 +50,10 @@ export async function processSearchIndexJob(pool: Pool, pageStore: PageStore, pa
     [pageId, content]
   );
   log.info({ event: "search_index_updated", pageId }, "search index refreshed");
+  // Embeddings are best effort: a provider outage must not fail keyword indexing.
+  await semanticIndex
+    ?.indexPage(pageId, doc)
+    .catch((err) => log.error({ event: "semantic_index_failed", pageId, err }, "semantic indexing failed"));
 }
 
 export async function processPreviewJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<void> {

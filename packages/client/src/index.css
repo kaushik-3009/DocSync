@@ -1864,3 +1864,63 @@ input::placeholder {
 .authorship-span {
   border-radius: 3px;
 }
+
+/* Search modes and workspace answers */
+.search-modes {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+}
+
+.search-mode {
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.search-mode.active {
+  border-color: var(--color-border);
+  color: inherit;
+}
+
+.search-answer-panel {
+  padding: 0.75rem 1rem 1rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.search-answer {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.search-citation {
+  border: none;
+  background: none;
+  padding: 0 0.1rem;
+  color: var(--color-link);
+  font-size: 0.8em;
+  vertical-align: super;
+  cursor: pointer;
+}
+
+.search-sources {
+  margin: 0.75rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.search-sources button {
+  border: none;
+  background: none;
+  padding: 0.15rem 0;
+  color: var(--color-link);
+  cursor: pointer;
+  text-align: left;
+}
