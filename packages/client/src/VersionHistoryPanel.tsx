@@ -51,6 +51,8 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
       cancelled = true;
       clearInterval(interval);
     };
+    // selectVersion is recreated every render; the poll is keyed by page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, refreshTick]);
 
   function selectVersion(seq: number, sourceVersions = versions ?? []) {

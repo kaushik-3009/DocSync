@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { Tldraw, createTLStore, type TLRecord, type TLStore } from "tldraw";
 import "tldraw/tldraw.css";
 

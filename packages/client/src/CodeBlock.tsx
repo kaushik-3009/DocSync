@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { WebsocketProvider } from "y-websocket";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { EditorState, Prec, type Extension } from "@codemirror/state";

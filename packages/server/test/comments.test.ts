@@ -196,7 +196,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
 
     // Give the first (mention-less) scan a chance to mark c1 as seen before editing it.
     await new Promise((resolve) => setTimeout(resolve, 50));
-    room.doc.getMap("comments").get("c1")!.set("text", `@${mentioned.email} now look at this`);
+    (room.doc.getMap("comments").get("c1") as Y.Map<unknown>).set("text", `@${mentioned.email} now look at this`);
 
     await vi_waitFor(async () => (await mentionsStore.listMentionsForUser(mentioned.id)).length === 1);
   });

@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import * as Y from "yjs";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as Y from "yjs";
 import {
   createBlock,
   deleteBlock,
@@ -252,6 +252,8 @@ export function App() {
     // Low-frequency fallback covers a temporary Redis/socket outage.
     const interval = setInterval(refresh, 30_000);
     return () => { cancelled = true; unsubscribe(); clearInterval(interval); };
+    // Keyed by identity: a refreshed token for the same user must not resubscribe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authRequired]);
 
   function joinPage(next: string) {

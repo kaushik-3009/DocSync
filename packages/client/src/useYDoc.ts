@@ -69,6 +69,8 @@ export interface YDocHandle {
  * actually puts data in it.
  */
 export function useYDoc(pageId: string, authUser?: AuthUser | null, enabled = true): YDocHandle {
+  // A fresh Y.Doc per page: pageId is the key, not an input.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const doc = useMemo(() => new Y.Doc(), [pageId]);
   // Recomputed (and, via the connect effect's dependency on `localUser`
   // below, reconnected) whenever sign-in state changes — logging in or out

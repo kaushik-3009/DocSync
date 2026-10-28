@@ -3,8 +3,9 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Pool } from "pg";
 import type { RateLimiterAbstract } from "rate-limiter-flexible";
 import { WebSocketServer, type WebSocket } from "ws";
-import { pageIdFromPath } from "@collab/shared";
-import { RoomRegistry } from "./room-registry.js";
+import { pageIdFromPath, type Role } from "@collab/shared";
+import type { Room } from "./room.js";
+import { type RoomRegistry } from "./room-registry.js";
 import { childLogger } from "./logger.js";
 import { tryConsume } from "./rate-limit/limiters.js";
 import { tokenFromWsProtocols, verifyToken, WS_PROTOCOL } from "./auth/jwt.js";
@@ -136,7 +137,7 @@ export function attachWsGateway(
     // addConnection has run — otherwise those frames would be silently
     // dropped (ws only emits "message" while a listener exists, it doesn't
     // queue).
-    let room: import("./room.js").Room | null = null;
+    let room: Room | null = null;
     let closed = false;
     const buffered: Uint8Array[] = [];
     let bufferedBytes = 0;
@@ -198,7 +199,7 @@ export function attachWsGateway(
     });
 
     (async () => {
-      let role: import("@collab/shared").Role | null = null;
+      let role: Role | null = null;
       let userId: string | null = null;
       if (auth) {
         const payload = token ? verifyToken(token, auth.jwtSecret) : null;

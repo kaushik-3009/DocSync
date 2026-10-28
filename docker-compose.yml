@@ -79,7 +79,7 @@ services:
 
   worker:
     <<: *server
-    command: ["pnpm", "--filter", "@collab/server", "exec", "tsx", "src/worker.ts"]
+    command: ["node", "--enable-source-maps", "dist/worker.js"]
     environment:
       PORT: 1235
       DATABASE_URL: postgres://${POSTGRES_USER:-collab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-collab}

@@ -4,11 +4,11 @@ services:
     runtime: node
     plan: starter
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @collab/server build
-    startCommand: pnpm --filter @collab/server exec tsx src/index.ts
+    startCommand: pnpm --filter @collab/server start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "24"
       - key: PORT
         value: "10000"
       - key: DATABASE_URL

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AiNotConfiguredError, GeminiProviderError, askGemini, chatGemini } from "../src/ai/gemini.js";
+import { AiNotConfiguredError, askGemini, chatGemini } from "../src/ai/gemini.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,7 +33,7 @@ describe("Gemini assistant boundary", () => {
       json: async () => ({ error: { message: "quota exceeded" } }),
     }));
     await expect(askGemini({ apiKey: "test-key", model: "gemini-test" }, { prompt: "Summarize", title: "Doc", blocks: [], role: "viewer" }))
-      .rejects.toMatchObject<Partial<GeminiProviderError>>({ status: 429, message: "quota exceeded", phase: "answer" });
+      .rejects.toMatchObject({ status: 429, message: "quota exceeded", phase: "answer" });
   });
 
   it("returns a reviewable edit plan when the unified chat requests a change", async () => {

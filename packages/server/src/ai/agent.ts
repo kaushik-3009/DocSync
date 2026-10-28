@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import {
   createBlock,
   deleteBlock,

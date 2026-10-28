@@ -1,4 +1,4 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { Pool } from "pg";
 import { appendOps, getCurrentSeq, getOpsInRange, listLogicalVersionSummaries, listOpSummaries, type AppendEntry, type LogicalVersionSummary, type OpRow, type OpSummary } from "./ops-log.js";
 import { saveSnapshot } from "./snapshots.js";

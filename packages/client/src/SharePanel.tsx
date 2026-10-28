@@ -52,6 +52,8 @@ export function SharePanel({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+    // Resets the panel per page; loadRoles is recreated every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, onClose]);
 
   const currentRole = roles?.find((entry) => entry.userId === currentUser?.id)?.role;
