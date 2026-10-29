@@ -5,6 +5,7 @@ import { formatRelativeTime } from "./relativeTime.js";
 import { getRecentPages, recordPageVisit } from "./recentPages.js";
 import { buildDeltaDom } from "./deltaDom.js";
 import { getCaretCharOffset, setCaretCharOffset } from "./caret.js";
+import { citedSources } from "./SearchOverlay.js";
 
 const block = (id: string, children: SerializedBlock[] = []) =>
   ({ id, type: "paragraph", text: "", children }) as unknown as SerializedBlock;
@@ -71,5 +72,15 @@ describe("caret offsets", () => {
     setCaretCharOffset(container, 0);
     expect(getCaretCharOffset(container)).toBe(0);
     container.remove();
+  });
+});
+
+describe("cited sources", () => {
+  const source = (n: number) => ({ n, pageId: `p${n}`, title: `Page ${n}`, snippet: "" });
+
+  it("lists only the sources the answer cites, including grouped citations", () => {
+    const sources = [source(1), source(2), source(3), source(4)];
+    expect(citedSources("Promote the replica [3]. Page on-call [1, 3].", sources).map((s) => s.n)).toEqual([1, 3]);
+    expect(citedSources("The sources do not say.", sources)).toEqual([]);
   });
 });

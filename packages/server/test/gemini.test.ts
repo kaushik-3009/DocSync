@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AiNotConfiguredError, askGemini, chatGemini } from "../src/ai/gemini.js";
+import { AiNotConfiguredError, EDIT_SENTINEL, askGemini, chatGemini, streamAssistantReply } from "../src/ai/gemini.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -134,5 +134,70 @@ describe("Gemini assistant boundary", () => {
     if (response.kind === "edit_plan")
       expect(response.plan.operations[0]).toMatchObject({ text: expect.stringContaining("Agriculture supports") });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("streamed assistant reply", () => {
+  const config = { apiKey: "test-key", model: "gemini-test" };
+  const input = (prompt: string, role = "editor") => ({
+    prompt,
+    role,
+    title: "Doc",
+    blocks: [
+      { id: "b1", type: "paragraph" as const, text: "hello", checked: false, language: "plaintext" as const, uploadId: null, children: [] },
+    ],
+  });
+  const sse = (...parts: string[]) =>
+    new Response(
+      new Blob([
+        ...parts.map((part) => `data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`),
+        "data: [DONE]\n\n",
+      ]).stream(),
+      { status: 200 }
+    );
+  const plan = { summary: "Retitle", operations: [{ op: "set_title", text: "New" }] };
+  const planResponse = () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(plan) } }] }) });
+  const collect = async (events: AsyncIterable<unknown>) => {
+    const out: unknown[] = [];
+    for await (const event of events) out.push(event);
+    return out;
+  };
+
+  it("forwards answer text unchanged once it cannot be the edit sentinel", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sse("[", "[ok] the ", "doc says hello")));
+    const events = (await collect(streamAssistantReply(config, input("What does it say?")))) as Array<{ text: string }>;
+    expect(events.map((event) => event.text).join("")).toBe("[[ok] the doc says hello");
+  });
+
+  it("switches to a typed plan when the model answers with the sentinel, split across frames", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(sse(" [[ED", "IT]]")).mockResolvedValueOnce(planResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await collect(streamAssistantReply(config, input("Make it punchier")))).toEqual([{ type: "plan", plan }]);
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).response_format.type).toBe("json_schema");
+  });
+
+  it("plans an explicit edit without a streaming round trip, and never for viewers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(planResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await collect(streamAssistantReply(config, input("Rename the title to New")))).toEqual([{ type: "plan", plan }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset().mockResolvedValue(sse(EDIT_SENTINEL));
+    const viewer = (await collect(streamAssistantReply(config, input("Make it punchier", "viewer")))) as Array<{ type: string }>;
+    expect(viewer.map((event) => event.type)).toEqual(["delta"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces Gemini's error message when it wraps the error in an array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 400, json: async () => [{ error: { message: "Request contains an invalid argument." } }] })
+    );
+    await expect(collect(streamAssistantReply(config, input("What?")))).rejects.toMatchObject({
+      status: 400,
+      message: "Request contains an invalid argument.",
+    });
   });
 });

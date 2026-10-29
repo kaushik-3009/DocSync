@@ -174,10 +174,6 @@ export function respondToInvitationToken(token: string, action: "accept" | "decl
   return postJson("/invitations/respond", { token, action });
 }
 
-export function askDocumentAssistant(pageId: string, prompt: string): Promise<{ answer: string; model: string }> {
-  return postJson(`/pages/${pageId}/assistant`, { prompt });
-}
-
 export type AgentOperation =
   | { op: "replace_text"; blockId: string; text: string }
   | { op: "set_block_type"; blockId: string; type: "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code" }
@@ -190,15 +186,6 @@ export type AgentOperation =
 export interface AgentPlan {
   summary: string;
   operations: AgentOperation[];
-}
-
-export type AssistantChatResponse =
-  | { kind: "answer"; answer: string; model: string }
-  | { kind: "edit_plan"; plan: AgentPlan; baseSeq: number; model: string }
-  | { answer: string; model: string };
-
-export function chatDocumentAssistant(pageId: string, prompt: string): Promise<AssistantChatResponse> {
-  return postJson(`/pages/${pageId}/assistant`, { prompt });
 }
 
 export function planDocumentEdit(pageId: string, prompt: string): Promise<{ plan: AgentPlan; baseSeq: number; model: string }> {
@@ -288,22 +275,23 @@ export interface Citation {
   snippet: string;
 }
 
-/** Streams a cited answer from POST /workspace/ask/stream (server-sent
- *  events: citations, then deltas, then done or error). */
-export async function askWorkspace(
-  question: string,
-  handlers: { onCitations: (citations: Citation[]) => void; onDelta: (text: string) => void },
+/** POSTs `body` and dispatches each server-sent event to `onEvent` until the
+ *  server sends `done`. An `error` event rejects with the server's message. */
+async function postEventStream(
+  path: string,
+  body: unknown,
+  onEvent: (event: string, payload: unknown) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await authorizedFetch("/workspace/ask/stream", {
+  const res = await authorizedFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!res.ok || !res.body) {
-    const body = await res.json().catch(() => ({}) as { error?: string });
-    throw new ApiError(body.error ?? `ask failed with HTTP ${res.status}`);
+    const error = await res.json().catch(() => ({}) as { error?: string });
+    throw new ApiError(error.error ?? `request failed with HTTP ${res.status}`);
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
@@ -319,12 +307,48 @@ export async function askWorkspace(
       const data = /^data: (.*)$/m.exec(frame)?.[1];
       if (!event || data === undefined) continue;
       const payload = JSON.parse(data);
-      if (event === "citations") handlers.onCitations(payload as Citation[]);
-      else if (event === "delta") handlers.onDelta((payload as { text: string }).text);
-      else if (event === "error") throw new ApiError((payload as { error: string }).error);
-      else if (event === "done") return;
+      if (event === "error") throw new ApiError((payload as { error: string }).error);
+      if (event === "done") return;
+      onEvent(event, payload);
     }
   }
+}
+
+/** Streams a cited answer from POST /workspace/ask/stream (citations, then
+ *  deltas). */
+export function askWorkspace(
+  question: string,
+  handlers: { onCitations: (citations: Citation[]) => void; onDelta: (text: string) => void },
+  signal?: AbortSignal
+): Promise<void> {
+  return postEventStream(
+    "/workspace/ask/stream",
+    { question },
+    (event, payload) => {
+      if (event === "citations") handlers.onCitations(payload as Citation[]);
+      else if (event === "delta") handlers.onDelta((payload as { text: string }).text);
+    },
+    signal
+  );
+}
+
+/** Streams the document assistant: answer text as deltas, or one reviewable
+ *  edit plan. */
+export function streamDocumentAssistant(
+  pageId: string,
+  prompt: string,
+  handlers: { onDelta: (text: string) => void; onPlan: (draft: { plan: AgentPlan; baseSeq: number }) => void },
+  signal?: AbortSignal
+): Promise<void> {
+  return postEventStream(
+    `/pages/${pageId}/assistant/stream`,
+    { prompt },
+    (event, payload) => {
+      if (event === "delta") handlers.onDelta((payload as { text: string }).text);
+      else if (event === "plan") handlers.onPlan(payload as { plan: AgentPlan; baseSeq: number });
+    },
+    signal
+  );
 }
 
 export interface ShareLinkSummary {

@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:integration": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5432/collab_test} TEST_REDIS_URL=${TEST_REDIS_URL:-redis://localhost:6379/15} vitest run",
     "start": "node --enable-source-maps dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "eval:assistant": "tsx eval/assistant-routing.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1158.0",

@@ -26,7 +26,7 @@ export default tseslint.config(
   },
   {
     // Tests and command-line harnesses may print and use loose test doubles.
-    files: ["**/test/**", "**/benchmark/**", "scripts/**"],
+    files: ["**/test/**", "**/benchmark/**", "**/eval/**", "scripts/**"],
     rules: { "no-console": "off", "@typescript-eslint/no-explicit-any": "off" },
   },
   prettier

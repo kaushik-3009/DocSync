@@ -16,6 +16,17 @@ const MODES: Array<{ mode: Mode; label: string; placeholder: string }> = [
   { mode: "ask", label: "Ask", placeholder: "Ask a question about your workspace, then press Enter" },
 ];
 
+/** The sources an answer actually cites ([2], [1, 3]), in source order.
+ *  Retrieval returns every chunk above a similarity cutoff; listing the
+ *  uncited ones as "sources" would claim support the answer never used. */
+export function citedSources(text: string, citations: Citation[]): Citation[] {
+  const cited = new Set<number>();
+  for (const match of text.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)) {
+    for (const n of match[1]!.split(",")) cited.add(Number(n));
+  }
+  return citations.filter((citation) => cited.has(citation.n));
+}
+
 /** Renders an answer with each [n] turned into a link to its source page. */
 function CitedAnswer({ text, citations, onOpen }: { text: string; citations: Citation[]; onOpen: (pageId: string) => void }) {
   const byNumber = new Map(citations.map((citation) => [citation.n, citation]));
@@ -163,9 +174,9 @@ export function SearchOverlay({ onNavigate, onClose }: { onNavigate: (pageId: st
               ) : (
                 !error && <div className="search-message">Reading your pages…</div>
               )}
-              {answer.done && answer.citations.length > 0 && (
+              {answer.done && citedSources(answer.text, answer.citations).length > 0 && (
                 <ol className="search-sources" aria-label="Sources">
-                  {answer.citations.map((citation) => (
+                  {citedSources(answer.text, answer.citations).map((citation) => (
                     <li key={citation.n}>
                       <button type="button" onClick={() => select(citation.pageId)}>
                         [{citation.n}] {citation.title}

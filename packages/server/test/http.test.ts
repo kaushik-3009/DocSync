@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import * as Y from "yjs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBlock } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { buildApp, type App } from "../src/http/app.js";
@@ -18,10 +18,16 @@ let pool: Pool;
 let app: App;
 let pageStore: PageStore;
 
-async function build(overrides: { httpPoints?: number } = {}) {
+async function build(overrides: { httpPoints?: number; geminiApiKey?: string } = {}) {
   pageStore = new PageStore(pool);
   return buildApp({
-    config: loadRuntimeConfig({ JWT_SECRET, DATABASE_URL: "postgres://unused", REDIS_URL: "redis://unused", ALLOWED_ORIGINS: ORIGIN }),
+    config: loadRuntimeConfig({
+      JWT_SECRET,
+      DATABASE_URL: "postgres://unused",
+      REDIS_URL: "redis://unused",
+      ALLOWED_ORIGINS: ORIGIN,
+      GEMINI_API_KEY: overrides.geminiApiKey,
+    }),
     gatewayId: "test-gateway",
     pool,
     pageStore,
@@ -51,6 +57,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await app?.close();
 });
 
@@ -333,5 +340,47 @@ describe("HTTP API", () => {
       deleted: true,
     });
     expect((await app.inject({ url, headers: auth(owner.token) })).json()).toEqual({ webhooks: [] });
+  });
+
+  it("streams the document assistant's answer as server-sent events", async () => {
+    const { token } = await register("owner@example.com");
+    const pageId = await createDocument(token, "Runbook");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/pages/${pageId}/assistant/stream`,
+          headers: auth(token),
+          payload: { prompt: "Summary?" },
+        })
+      ).statusCode
+    ).toBe(503);
+
+    await app.close();
+    app = await build({ geminiApiKey: "test-key" });
+    const frames = [
+      'data: {"choices":[{"delta":{"content":"It is "}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"a runbook."}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Blob(frames).stream(), { status: 200 }))
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: `/pages/${pageId}/assistant/stream`,
+      headers: { ...auth(token), origin: ORIGIN },
+      payload: { prompt: "What is this page about?" },
+    });
+    expect(response.headers["content-type"]).toContain("text/event-stream");
+    // The reply is hijacked; without carrying CORS over, browsers reject it.
+    expect(response.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    const events = response.body
+      .trim()
+      .split("\n\n")
+      .map((frame) => ({ event: frame.split("\n")[0]!.slice(7), data: JSON.parse(frame.split("\n")[1]!.slice(6)) }));
+    expect(events.map((event) => event.event)).toEqual(["delta", "delta", "done"]);
+    expect(events.map((event) => event.data.text ?? "").join("")).toBe("It is a runbook.");
   });
 });

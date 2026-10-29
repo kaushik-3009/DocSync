@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { applyDocumentEdit, chatDocumentAssistant, type AgentOperation, type AgentPlan } from "./api.js";
+import { applyDocumentEdit, streamDocumentAssistant, type AgentOperation, type AgentPlan } from "./api.js";
 import type { SerializedBlock } from "@docsync/shared";
 
 interface Message {
+  /** Set on a streamed reply so its deltas can find it. */
+  id?: number;
   role: "user" | "assistant";
   text: string;
 }
+
+let nextReplyId = 0;
 
 export function AssistantPanel({
   pageId,
@@ -24,13 +28,17 @@ export function AssistantPanel({
   const [draft, setDraft] = useState<{ baseSeq: number; plan: AgentPlan } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    abortRef.current?.abort();
     setMessages([]);
     setPrompt("");
     setError(null);
     setDraft(null);
   }, [pageId]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -44,17 +52,36 @@ export function AssistantPanel({
     setError(null);
     setMessages((current) => [...current, { role: "user", text: value }]);
     setPending(true);
+    setDraft(null);
+    const abort = new AbortController();
+    abortRef.current = abort;
+    // Answer text lands in one assistant message that grows as it streams.
+    // The updater must stay pure (StrictMode runs it twice), so the reply is
+    // found by id rather than by a flag captured in this closure.
+    const replyId = ++nextReplyId;
+    const appendDelta = (text: string) =>
+      setMessages((current) =>
+        current.some((message) => message.id === replyId)
+          ? current.map((message) => (message.id === replyId ? { ...message, text: message.text + text } : message))
+          : [...current, { id: replyId, role: "assistant", text }]
+      );
     try {
-      const response = await chatDocumentAssistant(pageId, value);
-      if (!("kind" in response) || response.kind === "answer") {
-        setMessages((current) => [...current, { role: "assistant", text: response.answer }]);
-      } else {
-        setDraft({ baseSeq: response.baseSeq, plan: response.plan });
-        setMessages((current) => [...current, { role: "assistant", text: response.plan.summary }]);
-      }
+      await streamDocumentAssistant(
+        pageId,
+        value,
+        {
+          onDelta: appendDelta,
+          onPlan: (next) => {
+            setDraft(next);
+            setMessages((current) => [...current, { role: "assistant", text: next.plan.summary }]);
+          },
+        },
+        abort.signal
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The assistant is unavailable.");
+      if (!abort.signal.aborted) setError(cause instanceof Error ? cause.message : "The assistant is unavailable.");
     } finally {
+      if (abortRef.current === abort) abortRef.current = null;
       setPending(false);
     }
   }
@@ -100,7 +127,7 @@ export function AssistantPanel({
             {message.text}
           </div>
         ))}
-        {pending && <div className="assistant-message is-assistant">Thinking…</div>}
+        {pending && messages.at(-1)?.role === "user" && <div className="assistant-message is-assistant">Thinking…</div>}
         {draft && (
           <div className="assistant-draft" role="status">
             <strong>Ready to apply</strong>

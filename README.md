@@ -28,9 +28,10 @@ can tell you who wrote every character.
 - **Authorship** — the Authors view highlights who wrote each character, with each
   person's share of the page.
 - **Meaning search and "Ask your workspace"** — semantic search over pgvector
-  embeddings, plus streamed answers with `[n]` citations back to your pages.
-- **AI edits you review first** — the assistant proposes structured edits (validated
-  against a JSON schema) shown as a diff; nothing changes until you approve.
+  embeddings (Gemini), plus streamed answers with `[n]` citations back to your pages.
+- **A document assistant that streams, and edits only with approval** — questions are
+  answered token by token; change requests come back as a typed edit plan (validated
+  against a JSON schema) shown as a diff, and nothing changes until you apply it.
 - **Sharing** — private by default; owner / editor / viewer roles enforced by the
   server; invitations; revocable read-only public links.
 - **Version history** — edits grouped into versions; restore any point without losing
@@ -40,6 +41,11 @@ can tell you who wrote every character.
 <p align="center">
   <img src="./artifacts/screenshots/docsync-authors.png" alt="Authors view highlighting each collaborator's text" width="49%">
   <img src="./artifacts/screenshots/docsync-share-links-webhooks.png" alt="Share panel with public links and webhooks" width="49%">
+</p>
+
+<p align="center">
+  <img src="./artifacts/screenshots/docsync-assistant-stream.png" alt="The document assistant streaming an answer" width="49%">
+  <img src="./artifacts/screenshots/docsync-assistant-plan.png" alt="The document assistant proposing an edit as a reviewable diff" width="49%">
 </p>
 
 ## Architecture
@@ -76,6 +82,15 @@ outbox. The committing gateway publishes it to Redis right after `COMMIT`; a swe
 re-publishes rows a crashed gateway left behind, with leases and backoff. Ops carry a
 per-page sequence number, and a gateway that sees a gap replays the missing range
 from Postgres, so a dropped Redis message can delay an edit but never lose it.
+
+**The assistant.** Answers stream over server-sent events; edits never do. A request
+that plainly asks for a change goes straight to structured output (a JSON-schema
+plan). For anything else the model streams its answer, or replies with a short
+sentinel if it judges the request to be a change, which the server holds back,
+detects, and turns into a plan. A plan applies only if the page hasn't moved since
+it was generated, through the same admission queue as a keystroke.
+`pnpm --filter @docsync/server eval:assistant` measures that routing against the real
+model (10/10 on `gemini-3.5-flash-lite`).
 
 **Background work** (search indexing, embeddings, previews, webhooks) runs as BullMQ
 jobs coalesced per page. A Redis "dirty" marker guarantees that an edit made while
@@ -143,6 +158,7 @@ one CPU each) converges with p95 1.97 s (`artifacts/benchmarks/compose-nginx-100
 | Client unit (Vitest + jsdom) | session refresh and rotation, editor helpers | jsdom |
 | End to end (Playwright) | signup, live two-browser sync, viewer enforcement, authorship, offline edits surviving a closed tab, meaning search ranking, public links, signed webhooks, image upload | real client + gateway + Postgres + Redis |
 | Infrastructure | `terraform validate`, checkov (0 unexplained findings) | CI |
+| AI provider contract (opt-in, `GEMINI_LIVE=1`) | the real Gemini API accepts our structured-output schema, streams, embeds at the stored width, and ranks by meaning | `test/gemini.live.test.ts` |
 | Load and chaos | sharded collaboration benchmark, gateway/Redis/Postgres fault injection | `scripts/benchmark`, `scripts/chaos` |
 
 ```bash

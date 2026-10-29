@@ -58,14 +58,16 @@ export const agentPlanSchema = z.object({
 });
 
 /** JSON Schema in the subset structured-output providers accept: no
- *  `$schema`, and `enum` instead of `const`. */
+ *  `$schema`, `enum` instead of `const`, and no array-length bounds (Gemini
+ *  rejects the whole request over `maxItems`). Dropped bounds still hold:
+ *  every response is re-validated with the zod schema. */
 export function providerJsonSchema(schema: z.ZodType): Record<string, unknown> {
   const convert = (node: unknown): unknown => {
     if (Array.isArray(node)) return node.map(convert);
     if (!node || typeof node !== "object") return node;
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(node)) {
-      if (key === "$schema") continue;
+      if (key === "$schema" || key === "maxItems" || key === "minItems") continue;
       if (key === "const") result.enum = [value];
       else result[key] = convert(value);
     }

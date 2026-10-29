@@ -46,12 +46,13 @@ describe("Gemini editing agent boundary", () => {
     expect(plan).toEqual({ summary: "Retitle", operations: [{ op: "set_title", text: "Q3 plan" }] });
   });
 
-  it("advertises every operation in the provider schema without const or $schema", () => {
+  it("advertises every operation in the provider schema without keywords Gemini rejects", () => {
     const schema = JSON.stringify(AGENT_PLAN_JSON_SCHEMA);
     for (const op of ["replace_text", "set_block_type", "set_checked", "set_language", "insert_block", "delete_block", "set_title"]) {
       expect(schema).toContain(`"enum":["${op}"]`);
     }
     expect(schema).not.toContain('"const"');
     expect(schema).not.toContain("$schema");
+    expect(schema).not.toContain("maxItems"); // Gemini answers HTTP 400 to the whole request
   });
 });

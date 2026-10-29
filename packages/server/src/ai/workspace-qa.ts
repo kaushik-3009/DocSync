@@ -1,12 +1,10 @@
-import { AiNotConfiguredError, GeminiProviderError, type GeminiConfig } from "./gemini.js";
+import { postChat, streamChat, type GeminiConfig } from "./gemini.js";
 import type { SemanticHit } from "../search/semantic.js";
-
-const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 const SYSTEM_PROMPT =
   "You answer questions about a team's workspace using only the numbered sources provided. " +
   "Cite every claim with its source number in square brackets, e.g. [2]. " +
-  "If the sources do not contain the answer, say so plainly instead of guessing. Be concise.";
+  "If the sources do not contain the answer, say so plainly instead of guessing. Be concise, and write plain text, not Markdown.";
 
 export interface Citation {
   n: number;
@@ -38,17 +36,15 @@ export function buildSources(hits: SemanticHit[]): { citations: Citation[]; prom
   return { citations, prompt };
 }
 
-function requestBody(config: GeminiConfig, question: string, sources: string, stream: boolean) {
-  return JSON.stringify({
-    model: config.model,
+function requestPayload(question: string, sources: string) {
+  return {
     temperature: 0.1,
     max_tokens: 900,
-    stream,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: `Sources:\n${sources || "(no matching sources)"}\n\nQuestion: ${question}` },
     ],
-  });
+  };
 }
 
 export async function answerFromWorkspace(
@@ -56,64 +52,17 @@ export async function answerFromWorkspace(
   question: string,
   hits: SemanticHit[]
 ): Promise<{ answer: string; citations: Citation[] }> {
-  if (!config.apiKey) throw new AiNotConfiguredError();
   const { citations, prompt } = buildSources(hits);
-  const response = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: requestBody(config, question, prompt, false),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    error?: { message?: string };
-  };
-  if (!response.ok)
-    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "answer");
-  const answer = body.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new GeminiProviderError("Gemini returned no answer", response.status, "answer");
+  const answer = await postChat(config, requestPayload(question, prompt), "answer", "Gemini returned no answer");
   return { answer, citations };
 }
 
-/** Yields answer text as the provider streams it (server-sent events). */
-export async function* streamAnswerFromWorkspace(
+/** Yields answer text as the provider streams it. */
+export function streamAnswerFromWorkspace(
   config: GeminiConfig,
   question: string,
   sources: string,
   signal?: AbortSignal
 ): AsyncGenerator<string> {
-  if (!config.apiKey) throw new AiNotConfiguredError();
-  const response = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: requestBody(config, question, sources, true),
-    signal,
-  });
-  if (!response.ok || !response.body) {
-    const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "answer");
-  }
-  yield* parseChatStream(response.body);
-}
-
-/** Parses an OpenAI-style chat completion SSE stream into content deltas. */
-export async function* parseChatStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true });
-    let newline: number;
-    while ((newline = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice(5).trim();
-      if (data === "[DONE]") return;
-      try {
-        const delta = (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]?.delta?.content;
-        if (delta) yield delta;
-      } catch {
-        // Ignore keep-alive or partial frames.
-      }
-    }
-  }
+  return streamChat(config, requestPayload(question, sources), "answer", signal);
 }

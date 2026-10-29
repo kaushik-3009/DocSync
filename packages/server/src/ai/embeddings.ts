@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { GeminiProviderError } from "./gemini.js";
+import { GeminiProviderError, providerErrorMessage } from "./gemini.js";
 
 /** Vector width stored in page_chunks.embedding. */
 export const EMBEDDING_DIMENSIONS = 768;
@@ -36,10 +36,10 @@ export class GeminiEmbedder implements Embedder {
       headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model: this.model, input: texts, dimensions: EMBEDDING_DIMENSIONS }),
     });
-    const body = (await response.json().catch(() => ({}))) as { data?: Array<{ embedding: number[] }>; error?: { message?: string } };
+    const body = (await response.json().catch(() => ({}))) as { data?: Array<{ embedding: number[] }> };
     if (!response.ok || !body.data || body.data.length !== texts.length) {
       throw new GeminiProviderError(
-        body.error?.message ?? `embedding request failed with HTTP ${response.status}`,
+        response.ok ? "embedding response did not match the request" : providerErrorMessage(body, response.status),
         response.status,
         "content"
       );

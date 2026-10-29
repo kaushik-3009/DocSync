@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 import { AiNotConfiguredError } from "../../ai/gemini.js";
 import { answerFromWorkspace, buildSources, selectSources, streamAnswerFromWorkspace } from "../../ai/workspace-qa.js";
 import { HttpError } from "../guards.js";
+import { openEventStream } from "../sse.js";
 import { bearer, type RoutePlugin } from "./types.js";
 
 const questionBody = z.object({ question: z.string().trim().min(3).max(1_000) });
@@ -54,28 +55,18 @@ export const workspaceRoutes: RoutePlugin = async (app, { deps, guards }) => {
     const hits = selectSources(await semanticIndex().search(request.body.question, user.userId, RETRIEVED_CHUNKS));
     const { citations, prompt } = buildSources(hits);
 
-    const abort = new AbortController();
-    request.raw.on("close", () => abort.abort());
-    reply.hijack();
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
-      "x-request-id": request.id,
-    });
-    const send = (event: string, data: unknown) => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const { signal, send, end } = openEventStream(request, reply);
     send("citations", citations);
     try {
-      for await (const text of streamAnswerFromWorkspace(gemini(), request.body.question, prompt, abort.signal)) send("delta", { text });
+      for await (const text of streamAnswerFromWorkspace(gemini(), request.body.question, prompt, signal)) send("delta", { text });
       send("done", {});
     } catch (err) {
-      if (!abort.signal.aborted) {
+      if (!signal.aborted) {
         request.log.warn({ event: "workspace_answer_stream_failed", err }, "workspace answer stream failed");
         send("error", { error: err instanceof Error ? err.message : "the assistant could not answer" });
       }
     } finally {
-      reply.raw.end();
+      end();
     }
   });
 };

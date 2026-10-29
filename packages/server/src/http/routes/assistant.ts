@@ -1,10 +1,18 @@
 import * as Y from "yjs";
 import { z } from "zod/v4";
 import { recordAudit } from "../../auth/audit.js";
-import { AiNotConfiguredError, GeminiFormatError, GeminiProviderError, chatGemini, planGemini } from "../../ai/gemini.js";
+import {
+  AiNotConfiguredError,
+  GeminiFormatError,
+  GeminiProviderError,
+  chatGemini,
+  planGemini,
+  streamAssistantReply,
+} from "../../ai/gemini.js";
 import { loadFreshAssistantState } from "../../ai/context.js";
 import { applyAgentPlan, parseAgentPlan } from "../../ai/agent.js";
 import { HttpError } from "../guards.js";
+import { openEventStream } from "../sse.js";
 import { bearer, pageParams, type RoutePlugin } from "./types.js";
 
 const promptBody = z.object({ prompt: z.string().trim().min(1).max(4_000) });
@@ -66,6 +74,52 @@ export const assistantRoutes: RoutePlugin = async (app, { deps, guards }) => {
       } catch (err) {
         request.log.warn({ event: "assistant_request_failed", pageId, err }, "assistant request failed");
         throw assistantError(err);
+      }
+    }
+  );
+
+  // Streamed /assistant, as server-sent events:
+  //   event: delta  data: { text }                     (repeated, for answers)
+  //   event: plan   data: { plan, baseSeq, model }     (for edits; a proposal only)
+  //   event: done | error
+  app.post(
+    "/pages/:pageId/assistant/stream",
+    { schema: { tags: ["assistant"], security: bearer, params: pageParams, body: promptBody } },
+    async (request, reply) => {
+      const user = guards.signedInUser(request);
+      const { pageId } = request.params;
+      const role = (await guards.pageRole(request, pageId))!;
+      if (!deps.config.geminiApiKey) throw new HttpError(503, "AI assistant is not configured");
+      const state = await documentContext(pageId);
+      const { signal, send, end } = openEventStream(request, reply);
+      let kind: "answer" | "edit_plan" = "answer";
+      try {
+        const events = streamAssistantReply(
+          gemini(),
+          { prompt: request.body.prompt, title: state.title, blocks: state.blocks, role },
+          signal
+        );
+        for await (const event of events) {
+          if (event.type === "delta") send("delta", { text: event.text });
+          else {
+            kind = "edit_plan";
+            send("plan", { plan: event.plan, baseSeq: state.baseSeq, model: deps.config.geminiModel });
+          }
+        }
+        send("done", { model: deps.config.geminiModel });
+        recordAudit(guards.pool(), {
+          userId: user.userId,
+          pageId,
+          event: kind === "edit_plan" ? "assistant_edit_planned" : "assistant_prompted",
+          metadata: { role, kind, streamed: true },
+        });
+      } catch (err) {
+        if (!signal.aborted) {
+          request.log.warn({ event: "assistant_stream_failed", pageId, err }, "assistant stream failed");
+          send("error", { error: assistantError(err).message });
+        }
+      } finally {
+        end();
       }
     }
   );

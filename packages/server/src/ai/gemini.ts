@@ -45,17 +45,96 @@ export class GeminiFormatError extends Error {
   }
 }
 
+export const CHAT_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+
+/** Gemini's OpenAI-compatible endpoint sometimes wraps its error object in a
+ *  one-element array; read both shapes so the provider's reason survives. */
+export function providerErrorMessage(body: unknown, status: number): string {
+  const error = (Array.isArray(body) ? body[0] : body) as { error?: { message?: unknown } } | undefined;
+  const message = error?.error?.message;
+  return typeof message === "string" && message ? message : `Gemini request failed with HTTP ${status}`;
+}
+
+type ChatPhase = GeminiProviderError["phase"];
+
+/** One chat-completions round trip. Returns the reply text, or throws a
+ *  GeminiProviderError naming the phase that failed. */
+export async function postChat(
+  config: GeminiConfig,
+  payload: Record<string, unknown>,
+  phase: ChatPhase,
+  emptyMessage: string
+): Promise<string> {
+  if (!config.apiKey) throw new AiNotConfiguredError();
+  const response = await fetch(CHAT_ENDPOINT, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: config.model, ...payload }),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+  };
+  if (!response.ok) throw new GeminiProviderError(providerErrorMessage(body, response.status), response.status, phase);
+  const rawContent = body.choices?.[0]?.message?.content;
+  const content = (typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join(""))?.trim();
+  if (!content)
+    throw new GeminiProviderError(`${emptyMessage} (the provider may have filtered or truncated the response)`, response.status, phase);
+  return content;
+}
+
+/** Streams a chat completion's text deltas. Breaking out of the loop
+ *  cancels the provider request. */
+export async function* streamChat(
+  config: GeminiConfig,
+  payload: Record<string, unknown>,
+  phase: ChatPhase,
+  signal?: AbortSignal
+): AsyncGenerator<string> {
+  if (!config.apiKey) throw new AiNotConfiguredError();
+  const response = await fetch(CHAT_ENDPOINT, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: config.model, ...payload, stream: true }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => ({}));
+    throw new GeminiProviderError(providerErrorMessage(body, response.status), response.status, phase);
+  }
+  yield* parseChatStream(response.body);
+}
+
+/** Parses an OpenAI-style chat completion SSE stream into content deltas. */
+export async function* parseChatStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") return;
+      try {
+        const delta = (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      } catch {
+        // Ignore keep-alive or partial frames.
+      }
+    }
+  }
+}
+
 export async function askGemini(
   config: GeminiConfig,
   input: { prompt: string; title: string; blocks: SerializedBlock[]; role: string }
 ): Promise<string> {
-  if (!config.apiKey) throw new AiNotConfiguredError();
   const context = serializeContext(input.title, input.blocks);
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.model,
+  return postChat(
+    config,
+    {
       temperature: 0.2,
       max_tokens: 1200,
       messages: [
@@ -69,22 +148,10 @@ export async function askGemini(
           content: `The caller has ${input.role} access.\n\nDocument:\n${context}\n\nRequest:\n${input.prompt}`,
         },
       ],
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    error?: { message?: string };
-  };
-  if (!response.ok)
-    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "answer");
-  const answer = body.choices?.[0]?.message?.content?.trim();
-  if (!answer)
-    throw new GeminiProviderError(
-      "Gemini returned no answer (the provider may have filtered or truncated the response)",
-      response.status,
-      "answer"
-    );
-  return answer;
+    },
+    "answer",
+    "Gemini returned no answer"
+  );
 }
 
 /** Generates prose/code independently from document Q&A and JSON planning.
@@ -94,12 +161,9 @@ async function generateGeminiContent(
   config: GeminiConfig,
   input: { prompt: string; role: string; kind: "prose" | "code" }
 ): Promise<string> {
-  if (!config.apiKey) throw new AiNotConfiguredError();
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.model,
+  return postChat(
+    config,
+    {
       temperature: 0.2,
       max_tokens: 1200,
       messages: [
@@ -112,36 +176,20 @@ async function generateGeminiContent(
         },
         { role: "user", content: `The caller has ${input.role} access. Write the requested ${input.kind} content:\n${input.prompt}` },
       ],
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
-    error?: { message?: string };
-  };
-  if (!response.ok)
-    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "content");
-  const rawContent = body.choices?.[0]?.message?.content;
-  const content = (typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join(""))?.trim();
-  if (!content)
-    throw new GeminiProviderError(
-      "Gemini returned no generated content (the provider may have filtered or truncated the response)",
-      response.status,
-      "content"
-    );
-  return content;
+    },
+    "content",
+    "Gemini returned no generated content"
+  );
 }
 
 export async function planGemini(
   config: GeminiConfig,
   input: { prompt: string; title: string; blocks: SerializedBlock[]; role: string }
 ): Promise<AgentPlan> {
-  if (!config.apiKey) throw new AiNotConfiguredError();
   const context = serializeContext(input.title, input.blocks);
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.model,
+  const content = await postChat(
+    config,
+    {
       temperature: 0.1,
       max_tokens: 1800,
       response_format: structuredOutput("agent_plan", AGENT_PLAN_JSON_SCHEMA),
@@ -156,22 +204,10 @@ export async function planGemini(
           content: `The caller has ${input.role} access.\n\nDocument (existing block IDs are authoritative):\n${context}\n\nRequested edit:\n${input.prompt}`,
         },
       ],
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
-    error?: { message?: string };
-  };
-  if (!response.ok)
-    throw new GeminiProviderError(body.error?.message ?? `Gemini request failed with HTTP ${response.status}`, response.status, "plan");
-  const rawContent = body.choices?.[0]?.message?.content;
-  const content = typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join("");
-  if (!content)
-    throw new GeminiProviderError(
-      "Gemini returned no edit plan (the provider may have filtered or truncated the response)",
-      response.status,
-      "plan"
-    );
+    },
+    "plan",
+    "Gemini returned no edit plan"
+  );
   try {
     return parseAgentPlan(content);
   } catch (error) {
@@ -199,11 +235,9 @@ export async function chatGemini(
     return { kind: "edit_plan", plan: await planGemini(config, input) };
   }
   const context = serializeContext(input.title, input.blocks);
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.model,
+  const content = await postChat(
+    config,
+    {
       temperature: 0.2,
       max_tokens: 1800,
       response_format: structuredOutput("chat_response", CHAT_RESPONSE_JSON_SCHEMA),
@@ -218,26 +252,10 @@ export async function chatGemini(
           content: `The caller has ${input.role} access.\n\nDocument (existing block IDs are authoritative):\n${context}\n\nRequest:\n${input.prompt}`,
         },
       ],
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
-    error?: { message?: string };
-  };
-  if (!response.ok)
-    throw new GeminiProviderError(
-      body.error?.message ?? `Gemini request failed with HTTP ${response.status}`,
-      response.status,
-      "classification"
-    );
-  const rawContent = body.choices?.[0]?.message?.content;
-  const content = (typeof rawContent === "string" ? rawContent : rawContent?.map((part) => part.text ?? "").join(""))?.trim();
-  if (!content)
-    throw new GeminiProviderError(
-      "Gemini returned no conversational response (the provider may have filtered or truncated the response)",
-      response.status,
-      "classification"
-    );
+    },
+    "classification",
+    "Gemini returned no conversational response"
+  );
   const normalized = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const jsonCandidate = normalized.startsWith("{") ? normalized : normalized.match(/\{[\s\S]*\}/)?.[0];
   let parsed: { kind?: unknown; answer?: unknown; operations?: unknown; edits?: unknown; changes?: unknown };
@@ -268,6 +286,88 @@ export async function chatGemini(
     }
   }
   throw new GeminiFormatError("Gemini returned neither an answer nor an edit plan");
+}
+
+/** What the model replies with, alone, when a streamed request turns out to
+ *  be a change. Short enough to buffer before forwarding any text. */
+export const EDIT_SENTINEL = "[[EDIT]]";
+
+export type AssistantStreamEvent = { type: "delta"; text: string } | { type: "plan"; plan: AgentPlan };
+
+/**
+ * Streamed counterpart of chatGemini. Questions stream as plain text (no JSON
+ * envelope, so tokens can be forwarded as they arrive). Edits are never
+ * streamed: an unambiguous edit request skips straight to a typed plan, and
+ * for anything else the model may answer with EDIT_SENTINEL, which aborts the
+ * stream and produces a plan instead. Either way the plan is only a proposal.
+ */
+export async function* streamAssistantReply(
+  config: GeminiConfig,
+  input: { prompt: string; title: string; blocks: SerializedBlock[]; role: string },
+  signal?: AbortSignal
+): AsyncGenerator<AssistantStreamEvent> {
+  if (!config.apiKey) throw new AiNotConfiguredError();
+  const canEdit = input.role === "owner" || input.role === "editor";
+  const viewerReply: AssistantStreamEvent = {
+    type: "delta",
+    text: "You have viewer access to this document, so I can answer questions but cannot prepare edits.",
+  };
+  const plan = async (): Promise<AssistantStreamEvent> => ({
+    type: "plan",
+    plan: wantsGeneratedContent(input.prompt) ? await fallbackEditPlan(config, input) : await planGemini(config, input),
+  });
+
+  if (isExplicitEditRequest(input.prompt)) {
+    yield canEdit ? await plan() : viewerReply;
+    return;
+  }
+
+  const context = serializeContext(input.title, input.blocks);
+  const deltas = streamChat(
+    config,
+    {
+      temperature: 0.2,
+      max_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: `You are DocSync's document assistant. Answer in chat: questions, explanations, walkthroughs, summaries and reviews are all answered in chat, concisely. Base answers about the document only on its contents, and say when it does not contain the answer. Only when the user explicitly asks you to modify the document itself (rewrite, reformat, add to, remove from, or translate it) reply with exactly ${EDIT_SENTINEL} and nothing else; asking you to explain or describe something is never a modification, however detailed. Write plain text, not Markdown.`,
+        },
+        {
+          role: "user",
+          content: `The caller has ${input.role} access.\n\nDocument:\n${context}\n\nRequest:\n${input.prompt}`,
+        },
+      ],
+    },
+    "answer",
+    signal
+  );
+  // Hold text back until it can no longer be the sentinel.
+  let head = "";
+  let decided = false;
+  for await (const delta of deltas) {
+    if (decided) {
+      yield { type: "delta", text: delta };
+      continue;
+    }
+    head += delta;
+    const trimmed = head.trimStart();
+    if (trimmed.startsWith(EDIT_SENTINEL)) {
+      yield canEdit ? await plan() : viewerReply; // leaving the loop cancels the stream
+      return;
+    }
+    if (trimmed.length >= EDIT_SENTINEL.length || !EDIT_SENTINEL.startsWith(trimmed)) {
+      decided = true;
+      yield { type: "delta", text: head };
+    }
+  }
+  if (!decided && head.trim()) yield { type: "delta", text: head };
+  else if (!decided)
+    throw new GeminiProviderError(
+      "Gemini returned no answer (the provider may have filtered or truncated the response)",
+      undefined,
+      "answer"
+    );
 }
 
 async function fallbackEditPlan(
