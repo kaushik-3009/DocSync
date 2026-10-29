@@ -56,7 +56,8 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_PASSWORD: postgres
+          # Throwaway container reachable only from this job: no password to commit.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: collab_test
         ports: ["5432:5432"]
         options: >-
@@ -77,7 +78,7 @@ jobs:
       - name: Server tests against services
         run: pnpm test:integration
         env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/collab_test
+          TEST_DATABASE_URL: postgres://postgres@localhost:5432/collab_test
           TEST_REDIS_URL: redis://localhost:6379/15
 
   e2e:
@@ -87,7 +88,8 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_PASSWORD: postgres
+          # Throwaway container reachable only from this job: no password to commit.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: docsync_e2e
         ports: ["5432:5432"]
         options: >-
