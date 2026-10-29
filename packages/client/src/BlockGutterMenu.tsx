@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BlockType } from "@collab/shared";
+import type { BlockType } from "@docsync/shared";
 import { BLOCK_TYPE_OPTIONS } from "./blockTypes.js";
 
 /**
@@ -33,12 +33,7 @@ export function BlockGutterMenu({
 
   return (
     <div className="block-gutter-menu-root" ref={rootRef}>
-      <button
-        type="button"
-        aria-label="block options"
-        className="block-gutter-btn"
-        onClick={() => setOpen((v) => !v)}
-      >
+      <button type="button" aria-label="block options" className="block-gutter-btn" onClick={() => setOpen((v) => !v)}>
         ⋮
       </button>
       {open && (

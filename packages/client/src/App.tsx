@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import * as Y from "yjs";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as Y from "yjs";
 import {
   createBlock,
   deleteBlock,
@@ -17,7 +17,7 @@ import {
   type SerializedComment,
   type Role,
   canEditContent,
-} from "@collab/shared";
+} from "@docsync/shared";
 import { useYDoc } from "./useYDoc.js";
 import { RichText } from "./RichText.js";
 // tldraw and CodeMirror's language packages are the two biggest contributors
@@ -26,12 +26,14 @@ import { RichText } from "./RichText.js";
 // page load costs everyone for a feature most sessions never touch.
 const CanvasBlock = lazy(() => import("./CanvasBlock.js").then((m) => ({ default: m.CanvasBlock })));
 const CodeBlock = lazy(() => import("./CodeBlock.js").then((m) => ({ default: m.CodeBlock })));
+const ImageBlock = lazy(() => import("./ImageBlock.js").then((m) => ({ default: m.ImageBlock })));
 import { flattenBlockIds } from "./blockTree.js";
 import { handleBlockKeyDown } from "./keyboard.js";
 import { requestFocus, getBlockElement } from "./blockFocus.js";
 import { SlashMenu, filterBlockTypeOptions } from "./SlashMenu.js";
 import { BlockGutterMenu } from "./BlockGutterMenu.js";
 import { VersionHistoryPanel } from "./VersionHistoryPanel.js";
+import { AuthorshipPanel } from "./AuthorshipPanel.js";
 import { SearchOverlay } from "./SearchOverlay.js";
 import { MentionTextInput } from "./MentionTextInput.js";
 import { formatRelativeTime } from "./relativeTime.js";
@@ -39,7 +41,7 @@ import {
   fetchPageRoles,
   requestPdfExport,
   getExportStatus,
-  fetchExportBlob,
+  fetchExportDownload,
   fetchHealth,
   fetchDocuments,
   createDocument,
@@ -52,11 +54,48 @@ import {
 } from "./api.js";
 import { SharePanel } from "./SharePanel.js";
 import { useTheme } from "./theme.js";
-import { useAuthUser, clearToken } from "./auth.js";
+import { useAuthUser, signOut } from "./auth.js";
 import { LoginScreen } from "./LoginScreen.js";
 import type { WebsocketProvider } from "y-websocket";
 import { AssistantPanel } from "./AssistantPanel.js";
 import { InvitationToast } from "./InvitationToast.js";
+
+/** Small localStorage cache for facts the app needs to start offline. */
+function readCached<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? null : (JSON.parse(raw) as T);
+  } catch {
+    return null;
+  }
+}
+
+function writeCached(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: offline start just won't be available.
+  }
+}
+
+/** Browser connectivity, updated by online/offline events. A socket can take
+ *  tens of seconds to notice a dead network; these events are immediate. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  return online;
+}
+
+const AUTH_REQUIRED_KEY = "docsync-auth-required";
+const roleCacheKey = (userId: string, pageId: string) => `docsync-role:${userId}:${pageId}`;
 
 function getPageIdFromUrl(): string {
   const params = new URLSearchParams(window.location.search);
@@ -79,7 +118,9 @@ export function App() {
   // guest-mode dev instance, assuming "not required" would let the app render
   // (and its WS connection silently fail to authenticate) before redirecting
   // into the gate a moment later.
-  const [authRequired, setAuthRequired] = useState<boolean | null>(null);
+  // Seeded from the last successful health check so the app can open
+  // offline; refreshed whenever the server is reachable.
+  const [authRequired, setAuthRequired] = useState<boolean | null>(() => readCached<boolean>(AUTH_REQUIRED_KEY));
   const [healthUnavailable, setHealthUnavailable] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   // Don't even attempt the WS connection until we know it has a real chance
@@ -94,6 +135,7 @@ export function App() {
     provider,
     blocks,
     synced,
+    loadedFromDevice,
     connectionDenied,
     connectionDeniedReason,
     localUser,
@@ -103,13 +145,17 @@ export function App() {
     addComment,
     toggleCommentResolved,
     removeComment,
-  } = useYDoc(pageId, authUser, canConnect);
+    // Signed-in users keep an on-device copy of each page so it opens and
+    // stays editable offline; Yjs merges it with the server on reconnect.
+  } = useYDoc(pageId, authUser, canConnect, Boolean(authUser));
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [creatingDocument, setCreatingDocument] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showAuthorship, setShowAuthorship] = useState(false);
+  const closeAuthorship = useCallback(() => setShowAuthorship(false), []);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
@@ -141,15 +187,22 @@ export function App() {
     };
   }, [pageId]);
   const [theme, toggleTheme] = useTheme();
+  const online = useOnline();
   const closeSharePanel = useCallback(() => setShowSharePanel(false), []);
 
   useEffect(() => {
-    fetchHealth()
-      .then((res) => {
-        setAuthRequired(res.authRequired);
-        setHealthUnavailable(false);
-      })
-      .catch(() => setHealthUnavailable(true));
+    const check = () =>
+      fetchHealth()
+        .then((res) => {
+          setAuthRequired(res.authRequired);
+          writeCached(AUTH_REQUIRED_KEY, res.authRequired);
+          setHealthUnavailable(false);
+        })
+        // Only a first-ever visit is blocked; otherwise keep working offline.
+        .catch(() => setHealthUnavailable(readCached<boolean>(AUTH_REQUIRED_KEY) === null));
+    void check();
+    window.addEventListener("online", check);
+    return () => window.removeEventListener("online", check);
   }, []);
 
   const flatIds = useMemo(() => flattenBlockIds(blocks), [blocks]);
@@ -167,8 +220,12 @@ export function App() {
   // would otherwise show stale content mid-transition.
   useEffect(() => {
     setShowVersionHistory(false);
+    setShowAuthorship(false);
     setShowSharePanel(false);
-    setPageRole(null);
+    // The last role confirmed for this page lets an offline session keep
+    // editing; the gateway re-checks it on every commit once reconnected.
+    setPageRole(authUser && pageId ? readCached<Role>(roleCacheKey(authUser.id, pageId)) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
   // Powers @mention autocomplete: who can even be mentioned on *this* page.
@@ -193,6 +250,7 @@ export function App() {
         if (!cancelled) {
           const current = res.roles.find((role) => role.userId === authUser.id);
           setPageRole(current?.role ?? null);
+          writeCached(roleCacheKey(authUser.id, pageId), current?.role ?? null);
           setMentionEmails(res.roles.map((r) => r.email));
         }
       })
@@ -237,21 +295,32 @@ export function App() {
       .catch(() => {
         if (!cancelled) setDocumentsLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authRequired]);
 
   useEffect(() => {
     if (!authUser || authRequired !== true) return;
     let cancelled = false;
-    const refresh = () => fetchNotifications().then(({ notifications: next }) => {
-      if (!cancelled) setNotifications(next.filter((item) => item.type === "document_invitation" && !item.readAt));
-    }).catch(() => undefined);
+    const refresh = () =>
+      fetchNotifications()
+        .then(({ notifications: next }) => {
+          if (!cancelled) setNotifications(next.filter((item) => item.type === "document_invitation" && !item.readAt));
+        })
+        .catch(() => undefined);
     void refresh();
     const unsubscribe = subscribeToNotificationChanges(refresh);
     // Low-frequency fallback covers a temporary Redis/socket outage.
     const interval = setInterval(refresh, 30_000);
-    return () => { cancelled = true; unsubscribe(); clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      clearInterval(interval);
+    };
+    // Keyed by identity: a refreshed token for the same user must not resubscribe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authRequired]);
 
   function joinPage(next: string) {
@@ -276,7 +345,7 @@ export function App() {
   async function answerInvitation(notification: InvitationNotification, action: "accept" | "decline") {
     setRespondingInvitation(true);
     try {
-      const response = await respondToInvitation(notification.payload.invitationId, action) as { invitation: { documentId: string } };
+      const response = (await respondToInvitation(notification.payload.invitationId, action)) as { invitation: { documentId: string } };
       setNotifications((current) => current.filter((item) => item.id !== notification.id));
       if (action === "accept") {
         const refreshed = await fetchDocuments();
@@ -292,7 +361,7 @@ export function App() {
     if (!inviteToken) return;
     setRespondingInvitation(true);
     try {
-      const response = await respondToInvitationToken(inviteToken, action) as { invitation: { documentId: string } };
+      const response = (await respondToInvitationToken(inviteToken, action)) as { invitation: { documentId: string } };
       const url = new URL(window.location.href);
       url.searchParams.delete("invite");
       window.history.replaceState(null, "", url);
@@ -322,8 +391,8 @@ export function App() {
       });
   }
 
-  // Enqueue → poll the job every ~1s → download the finished PDF, per
-  // docs/DESIGN.md section 9. Each step degrades to an inline error state
+  // Enqueue → poll the job every ~1s → download the finished PDF. Each step
+  // degrades to an inline error state
   // (never a thrown/unhandled rejection) since this whole pipeline is
   // optional infra that's simply absent without REDIS_URL/DATABASE_URL.
   function exportPdf() {
@@ -348,9 +417,8 @@ export function App() {
             .then((status) => {
               if (status.state === "completed" && status.exportId) {
                 clearInterval(poll);
-                return fetchExportBlob(status.exportId).then((blob) => {
-                  if (!stillCurrent()) return;
-                  const url = URL.createObjectURL(blob);
+                return fetchExportDownload(status.exportId).then(({ url, release }) => {
+                  if (!stillCurrent()) return release();
                   const a = document.createElement("a");
                   a.href = url;
                   a.download = `${exportPageId}.pdf`;
@@ -362,7 +430,7 @@ export function App() {
                   document.body.appendChild(a);
                   a.click();
                   a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+                  setTimeout(release, 1_000);
                   exportPollRef.current = null;
                   setExportState("idle");
                 });
@@ -400,29 +468,44 @@ export function App() {
   }
 
   if (healthUnavailable) {
-    return <main className="connection-error" role="alert">Unable to reach Collab Workspace. Check the server connection and reload.</main>;
+    return (
+      <main className="connection-error" role="alert">
+        Unable to reach Collab Workspace. Check the server connection and reload.
+      </main>
+    );
   }
 
   return (
     <div className="page-shell">
-      <PageSidebar pages={documents} currentPageId={pageId} loading={documentsLoading} creating={creatingDocument} onSelect={joinPage} onNewPage={newPage} />
+      <PageSidebar
+        pages={documents}
+        currentPageId={pageId}
+        loading={documentsLoading}
+        creating={creatingDocument}
+        onSelect={joinPage}
+        onNewPage={newPage}
+      />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div className="doc-toolbar">
           <span
             className="doc-sync-status"
-            style={{ color: connectionDenied ? "var(--color-danger)" : synced ? "var(--color-accent)" : "var(--color-warning)" }}
+            style={{
+              color: connectionDenied ? "var(--color-danger)" : synced && online ? "var(--color-accent)" : "var(--color-warning)",
+            }}
           >
             <span className="doc-sync-dot" />
             {connectionDenied
               ? connectionDeniedReason === "access"
                 ? "You don't have access to this page"
                 : "Sign in again to continue"
-              : synced
-                ? "Synced"
-                : navigator.onLine
-                  ? "Reconnecting — changes may be pending"
-                  : "Offline — changes will sync when reconnected"}
+              : !online
+                ? loadedFromDevice
+                  ? "Offline — editing the copy on this device; changes sync when you reconnect"
+                  : "Offline — changes will sync when reconnected"
+                : synced
+                  ? "Synced"
+                  : "Reconnecting — changes may be pending"}
           </span>
           <PresenceBar localUser={localUser} peers={peers} />
           <div style={{ flex: 1 }} />
@@ -441,6 +524,9 @@ export function App() {
           <button className="toolbar-btn" onClick={() => setShowVersionHistory(true)}>
             History
           </button>
+          <button className="toolbar-btn" onClick={() => setShowAuthorship(true)} disabled={!pageId}>
+            Authors
+          </button>
           <button className="toolbar-btn" onClick={() => setShowAssistant((visible) => !visible)} disabled={!pageId}>
             Assistant
           </button>
@@ -452,7 +538,7 @@ export function App() {
             {theme === "dark" ? "☀️" : "🌙"}
           </button>
           {authUser ? (
-            <button className="toolbar-btn" onClick={clearToken} title={authUser.email}>
+            <button className="toolbar-btn" onClick={() => void signOut()} title={authUser.email}>
               Sign out
             </button>
           ) : (
@@ -464,38 +550,44 @@ export function App() {
 
         <div className="doc-scroll">
           {!pageId ? (
-            <div className="workspace-empty"><h2>Your workspace is private</h2><p>Create a document or accept an invitation to begin.</p><button onClick={newPage}>Create a document</button></div>
-          ) : (
-          <div className="doc-page">
-            <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
-
-            <div className="doc-body">
-              {blocks.map((block) => (
-                <BlockRow
-                  key={block.id}
-                  block={block}
-                  depth={0}
-                  doc={doc}
-                  provider={provider}
-                  allPeers={peers}
-                  flatIds={flatIds}
-                  setCursor={setCursor}
-                  clearCursor={clearCursor}
-                  localUserName={localUser.name}
-                  addComment={addComment}
-                  onToggleResolved={toggleCommentResolved}
-                  onRemoveComment={removeComment}
-                mentionEmails={mentionEmails}
-                canEdit={canEdit}
-              />
-              ))}
+            <div className="workspace-empty">
+              <h2>Your workspace is private</h2>
+              <p>Create a document or accept an invitation to begin.</p>
+              <button onClick={newPage}>Create a document</button>
             </div>
-          </div>
+          ) : (
+            <div className="doc-page">
+              <TitleField doc={doc} firstBlockId={flatIds[0]} readOnly={!canEdit} />
+
+              <div className="doc-body">
+                {blocks.map((block) => (
+                  <BlockRow
+                    pageId={pageId}
+                    key={block.id}
+                    block={block}
+                    depth={0}
+                    doc={doc}
+                    provider={provider}
+                    allPeers={peers}
+                    flatIds={flatIds}
+                    setCursor={setCursor}
+                    clearCursor={clearCursor}
+                    localUserName={localUser.name}
+                    addComment={addComment}
+                    onToggleResolved={toggleCommentResolved}
+                    onRemoveComment={removeComment}
+                    mentionEmails={mentionEmails}
+                    canEdit={canEdit}
+                  />
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
 
       {showVersionHistory && <VersionHistoryPanel pageId={pageId} onClose={() => setShowVersionHistory(false)} />}
+      {showAuthorship && <AuthorshipPanel pageId={pageId} onClose={closeAuthorship} />}
       {showSharePanel && (
         <SharePanel
           pageId={pageId}
@@ -506,12 +598,31 @@ export function App() {
       )}
       {showSearch && <SearchOverlay onNavigate={joinPage} onClose={() => setShowSearch(false)} />}
       {showLoginModal && <LoginScreen mandatory={false} onClose={() => setShowLoginModal(false)} />}
-      {showAssistant && pageId && <AssistantPanel pageId={pageId} blocks={blocks} title={getTitleText(doc).toString()} onClose={() => setShowAssistant(false)} />}
+      {showAssistant && pageId && (
+        <AssistantPanel pageId={pageId} blocks={blocks} title={getTitleText(doc).toString()} onClose={() => setShowAssistant(false)} />
+      )}
       <div className="notification-stack">
         {inviteToken && authUser && (
-          <div className="invitation-toast" role="status"><div>You have a document invitation.</div><div className="invitation-actions"><button onClick={() => answerInviteToken("accept")} disabled={respondingInvitation}>Accept</button><button className="is-secondary" onClick={() => answerInviteToken("decline")} disabled={respondingInvitation}>Decline</button></div></div>
+          <div className="invitation-toast" role="status">
+            <div>You have a document invitation.</div>
+            <div className="invitation-actions">
+              <button onClick={() => answerInviteToken("accept")} disabled={respondingInvitation}>
+                Accept
+              </button>
+              <button className="is-secondary" onClick={() => answerInviteToken("decline")} disabled={respondingInvitation}>
+                Decline
+              </button>
+            </div>
+          </div>
         )}
-        {notifications.map((notification) => <InvitationToast key={notification.id} notification={notification} pending={respondingInvitation} onRespond={(action) => answerInvitation(notification, action)} />)}
+        {notifications.map((notification) => (
+          <InvitationToast
+            key={notification.id}
+            notification={notification}
+            pending={respondingInvitation}
+            onRespond={(action) => answerInvitation(notification, action)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -562,9 +673,7 @@ function PageSidebar({
       <div className="sidebar-section-label">Documents</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.1rem", overflowY: "auto" }}>
         {!loading && pages.length === 0 && (
-          <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", padding: "0.4rem 0.5rem" }}>
-            None yet
-          </span>
+          <span style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", padding: "0.4rem 0.5rem" }}>None yet</span>
         )}
         {pages.map((page) => (
           <button
@@ -577,7 +686,8 @@ function PageSidebar({
               whiteSpace: "nowrap",
             }}
           >
-            <span>{page.title || "Untitled"}</span><small>{page.role}</small>
+            <span>{page.title || "Untitled"}</span>
+            <small>{page.role}</small>
           </button>
         ))}
       </div>
@@ -594,13 +704,7 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-function PresenceBar({
-  localUser,
-  peers,
-}: {
-  localUser: { id: string; name: string; color: string };
-  peers: PresenceState[];
-}) {
+function PresenceBar({ localUser, peers }: { localUser: { id: string; name: string; color: string }; peers: PresenceState[] }) {
   const activeCount = peers.length + 1;
   return (
     <div
@@ -610,12 +714,7 @@ function PresenceBar({
       title={`${activeCount} ${activeCount === 1 ? "person" : "people"} currently on this page`}
     >
       {peers.map((peer) => (
-        <span
-          key={peer.user.id}
-          className="presence-avatar"
-          style={{ background: peer.user.color }}
-          title={peer.user.name}
-        >
+        <span key={peer.user.id} className="presence-avatar" style={{ background: peer.user.color }} title={peer.user.name}>
           {initials(peer.user.name)}
         </span>
       ))}
@@ -641,7 +740,9 @@ function BlockRow({
   onRemoveComment,
   mentionEmails,
   canEdit,
+  pageId,
 }: {
+  pageId: string;
   block: SerializedBlock;
   depth: number;
   doc: Y.Doc;
@@ -675,7 +776,7 @@ function BlockRow({
   const isTodo = block.type === "todo";
   const isDone = isTodo && block.checked;
 
-  const isTextBlock = block.type !== "canvas" && block.type !== "code";
+  const isTextBlock = block.type !== "canvas" && block.type !== "code" && block.type !== "image";
   const rawSlashQuery = isTextBlock && block.text.startsWith("/") ? block.text.slice(1) : null;
   const slashQuery = slashDismissed ? null : rawSlashQuery;
   const slashFiltered = slashQuery !== null ? filterBlockTypeOptions(slashQuery) : [];
@@ -721,7 +822,7 @@ function BlockRow({
     // Specialized blocks own a Y.Text for their editor, but continuing below
     // them must always create a normal paragraph. Splitting the source text
     // would preserve `code`/`canvas` and duplicate the specialized block.
-    if (block.type === "code" || block.type === "canvas") {
+    if (block.type === "code" || block.type === "canvas" || block.type === "image") {
       if (insertBlockAfter(doc, block.id, newId, "paragraph")) {
         const newYText = getBlockText(doc, newId);
         if (newYText) requestFocus(newYText, 0);
@@ -771,13 +872,13 @@ function BlockRow({
         {block.type === "bullet" && <span aria-hidden="true">•</span>}
 
         <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-          {block.type === "canvas" || block.type === "code" || !blockText ? null : (
-              <RichText
+          {block.type === "canvas" || block.type === "code" || block.type === "image" || !blockText ? null : (
+            <RichText
               doc={doc}
               ytext={blockText}
               registryId={block.id}
-                placeholder={depth === 0 ? "Type '/' for commands" : undefined}
-                readOnly={!canEdit}
+              placeholder={depth === 0 ? "Type '/' for commands" : undefined}
+              readOnly={!canEdit}
               peerCursors={peerCursors}
               style={{
                 fontWeight: block.type === "heading" ? 700 : 400,
@@ -787,42 +888,44 @@ function BlockRow({
               }}
               onFocusOffset={(offset) => setCursor(block.id, offset)}
               onBlur={clearCursor}
-              onKeyDown={canEdit ? (e) => {
-                if (slashQuery !== null) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSlashHighlight((h) => Math.min(h + 1, Math.max(slashFiltered.length - 1, 0)));
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSlashHighlight((h) => Math.max(h - 1, 0));
-                    return;
-                  }
-                  if (e.key === "Enter" && slashFiltered.length > 0) {
-                    e.preventDefault();
-                    commitSlashCommand(slashFiltered[slashHighlight]?.type ?? slashFiltered[0].type);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setSlashDismissed(true);
-                    return;
-                  }
-                }
-                handleBlockKeyDown(e, {
-                  doc,
-                  blockId: block.id,
-                  container: e.currentTarget,
-                  prevBlockId,
-                  nextBlockId,
-                });
-              } : undefined}
+              onKeyDown={
+                canEdit
+                  ? (e) => {
+                      if (slashQuery !== null) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setSlashHighlight((h) => Math.min(h + 1, Math.max(slashFiltered.length - 1, 0)));
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setSlashHighlight((h) => Math.max(h - 1, 0));
+                          return;
+                        }
+                        if (e.key === "Enter" && slashFiltered.length > 0) {
+                          e.preventDefault();
+                          commitSlashCommand(slashFiltered[slashHighlight]?.type ?? slashFiltered[0].type);
+                          return;
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setSlashDismissed(true);
+                          return;
+                        }
+                      }
+                      handleBlockKeyDown(e, {
+                        doc,
+                        blockId: block.id,
+                        container: e.currentTarget,
+                        prevBlockId,
+                        nextBlockId,
+                      });
+                    }
+                  : undefined
+              }
             />
           )}
-          {canEdit && slashQuery !== null && (
-            <SlashMenu query={slashQuery} highlightIndex={slashHighlight} onSelect={commitSlashCommand} />
-          )}
+          {canEdit && slashQuery !== null && <SlashMenu query={slashQuery} highlightIndex={slashHighlight} onSelect={commitSlashCommand} />}
         </div>
       </div>
 
@@ -830,12 +933,37 @@ function BlockRow({
         <div
           style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}
           tabIndex={canEdit ? 0 : undefined}
-          onKeyDown={canEdit ? (event) => { if (event.key === "Enter") { event.preventDefault(); insertBlockBelow(); } } : undefined}
+          onKeyDown={
+            canEdit
+              ? (event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    insertBlockBelow();
+                  }
+                }
+              : undefined
+          }
         >
           <Suspense fallback={<div className="embed-card-loading">Loading canvas…</div>}>
             <CanvasBlock doc={doc} blockId={block.id} readOnly={!canEdit} />
           </Suspense>
-          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Click or press Enter to continue below</button>}
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Click or press Enter to continue below
+            </button>
+          )}
+        </div>
+      )}
+      {block.type === "image" && (
+        <div style={{ marginLeft: `${depth * 1.5 + 1.6}rem`, marginTop: "0.4rem", marginBottom: "0.4rem" }}>
+          <Suspense fallback={<div className="embed-card-loading">Loading image…</div>}>
+            <ImageBlock doc={doc} blockId={block.id} pageId={pageId} uploadId={block.uploadId} readOnly={!canEdit} />
+          </Suspense>
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Continue with text below
+            </button>
+          )}
         </div>
       )}
       {block.type === "code" && (
@@ -851,7 +979,11 @@ function BlockRow({
               onExit={insertBlockBelow}
             />
           </Suspense>
-          {canEdit && <button type="button" className="special-block-tail" onClick={insertBlockBelow}>Continue with text below</button>}
+          {canEdit && (
+            <button type="button" className="special-block-tail" onClick={insertBlockBelow}>
+              Continue with text below
+            </button>
+          )}
         </div>
       )}
       {showComments && (
@@ -869,6 +1001,7 @@ function BlockRow({
       )}
       {block.children.map((child) => (
         <BlockRow
+          pageId={pageId}
           key={child.id}
           block={child}
           depth={depth + 1}

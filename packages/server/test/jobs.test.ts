@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { createTestPool } from "./helpers/test-db.js";
 import { PageStore } from "../src/persistence/page-store.js";
+import { PostgresExportStorage } from "../src/exports/storage.js";
 import { processSearchIndexJob, processPreviewJob, processPdfExportJob } from "../src/jobs/processors.js";
 import { searchPages } from "../src/jobs/search.js";
 import { createUser } from "../src/auth/users.js";
 import { grantRole } from "../src/auth/rbac.js";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 
 let pool: Pool;
 let pageStore: PageStore;
@@ -88,9 +89,7 @@ describe("processPreviewJob", () => {
     await seedPage("page-a", "a".repeat(300));
     await processPreviewJob(pool, pageStore, "page-a");
 
-    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", [
-      "page-a",
-    ]);
+    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", ["page-a"]);
     expect(result.rows[0].preview.length).toBe(201); // 200 chars + ellipsis
     expect(result.rows[0].preview.endsWith("…")).toBe(true);
 
@@ -102,9 +101,7 @@ describe("processPreviewJob", () => {
   it("does not truncate short content", async () => {
     await seedPage("page-a", "short text");
     await processPreviewJob(pool, pageStore, "page-a");
-    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", [
-      "page-a",
-    ]);
+    const result = await pool.query<{ preview: string }>("SELECT preview FROM page_previews WHERE page_id = $1", ["page-a"]);
     expect(result.rows[0].preview).toBe("short text");
   });
 });
@@ -112,7 +109,7 @@ describe("processPreviewJob", () => {
 describe("processPdfExportJob", () => {
   it("renders a page's blocks into a stored PDF artifact and returns its id", async () => {
     await seedPage("page-a", "exportable content");
-    const exportId = await processPdfExportJob(pool, pageStore, "page-a");
+    const exportId = await processPdfExportJob(new PostgresExportStorage(pool), pageStore, "page-a");
 
     const result = await pool.query<{ page_id: string; format: string; data: string }>(
       "SELECT page_id, format, data FROM exports WHERE id = $1",
@@ -126,7 +123,7 @@ describe("processPdfExportJob", () => {
   });
 
   it("handles an empty page without throwing", async () => {
-    const exportId = await processPdfExportJob(pool, pageStore, "never-touched-page");
+    const exportId = await processPdfExportJob(new PostgresExportStorage(pool), pageStore, "never-touched-page");
     const result = await pool.query("SELECT id FROM exports WHERE id = $1", [exportId]);
     expect(result.rows).toHaveLength(1);
   });

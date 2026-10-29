@@ -14,6 +14,7 @@ if [[ ! -f "$infra_dir/terraform.tfvars" ]]; then
 fi
 
 cd "$infra_dir"
-terraform init -backend=false
+terraform init -input=false -backend-config=backend.hcl
 terraform destroy -input=false -var-file=terraform.tfvars
-echo "Destroy command completed. Run the tag/resource audit in docs/aws-topology.md."
+echo "Destroy completed. Confirm nothing tagged Project=docsync remains:"
+echo "  aws resourcegroupstaggingapi get-resources --tag-filters Key=Project,Values=docsync"

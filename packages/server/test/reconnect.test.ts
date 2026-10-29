@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway } from "../src/ws-gateway.js";
 import type { WebSocketServer } from "ws";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
-import type { PresenceState } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
+import type { PresenceState } from "@docsync/shared";
 
 let httpServer: Server;
 let port: number;
@@ -28,11 +28,17 @@ afterEach(async () => {
   wss.clients.forEach((client) => client.terminate());
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    wss.close(() => { clearTimeout(timer); resolve(); });
+    wss.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    httpServer.close(() => { clearTimeout(timer); resolve(); });
+    httpServer.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 });
 

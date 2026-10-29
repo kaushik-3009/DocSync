@@ -1,14 +1,25 @@
 import type { Pool } from "pg";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 
 /** Plain lookup with no side effects. Document creation is the only operation
  * that establishes ownership; reads and WebSocket connections never grant it. */
 export async function getExistingRole(pool: Pool, pageId: string, userId: string): Promise<Role | null> {
-  const result = await pool.query<{ role: Role }>("SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2", [
-    pageId,
-    userId,
-  ]);
+  const result = await pool.query<{ role: Role }>("SELECT role FROM page_roles WHERE page_id = $1 AND user_id = $2", [pageId, userId]);
   return result.rows[0]?.role ?? null;
+}
+
+/** Roles for several users on one page in a single query. Users without a
+ * grant are absent from the result. */
+export async function getExistingRoles(pool: Pool, pageId: string, userIds: string[]): Promise<Map<string, Role>> {
+  if (userIds.length === 0) return new Map();
+  // An expanded IN list rather than `= ANY($2)`: pg-mem (unit tests) silently
+  // matches nothing for array parameters.
+  const placeholders = userIds.map((_, index) => `$${index + 2}`).join(", ");
+  const result = await pool.query<{ user_id: string; role: Role }>(
+    `SELECT user_id, role FROM page_roles WHERE page_id = $1 AND user_id IN (${placeholders})`,
+    [pageId, ...userIds]
+  );
+  return new Map(result.rows.map((row) => [row.user_id, row.role]));
 }
 
 /**
@@ -43,13 +54,7 @@ export class OwnerRoleGrantNotAllowedError extends Error {
 }
 
 /** Grants (or updates) editor/viewer access for a page. Ownership is immutable after document creation. */
-export async function grantRole(
-  pool: Pool,
-  pageId: string,
-  granterId: string,
-  granteeUserId: string,
-  role: Role
-): Promise<void> {
+export async function grantRole(pool: Pool, pageId: string, granterId: string, granteeUserId: string, role: Role): Promise<void> {
   if (role === "owner") throw new OwnerRoleGrantNotAllowedError(pageId);
 
   const granterRole = await getExistingRole(pool, pageId, granterId);

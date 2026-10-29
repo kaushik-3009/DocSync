@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Pool } from "pg";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 
 export interface WorkspaceDocument {
   id: string;

@@ -85,7 +85,11 @@ async function main(): Promise<void> {
   const waitMs = timeoutMs();
   const deadline = Date.now() + waitMs;
   let observations = await observe(pageId, pool, queues);
-  while (waitMs > 0 && observations.some((item) => item.accountedAs === "remaining" || item.accountedAs === "unaccounted") && Date.now() < deadline) {
+  while (
+    waitMs > 0 &&
+    observations.some((item) => item.accountedAs === "remaining" || item.accountedAs === "unaccounted") &&
+    Date.now() < deadline
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     observations = await observe(pageId, pool, queues);
   }
@@ -106,7 +110,8 @@ async function main(): Promise<void> {
     unaccountedJobs,
     terminal: remainingJobs === 0 && unaccountedJobs === 0,
     queues: observations,
-    claimBoundary: "Expected is one coalesced search-index and one preview job for this page. Completed is the processor output row; failed is the BullMQ failed state; remaining is a waiting/active/delayed/paused job. Missing Redis job and output is unaccounted, not success.",
+    claimBoundary:
+      "Expected is one coalesced search-index and one preview job for this page. Completed is the processor output row; failed is the BullMQ failed state; remaining is a waiting/active/delayed/paused job. Missing Redis job and output is unaccounted, not success.",
   };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   await Promise.all(queues.map((queue) => queue.close().catch(() => undefined)));
@@ -116,6 +121,6 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
   process.exitCode = 1;
 });

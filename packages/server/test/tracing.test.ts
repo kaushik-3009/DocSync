@@ -1,7 +1,8 @@
-import RedisMock from "ioredis-mock";
+import type Redis from "ioredis";
+import { createTestRedis } from "./helpers/test-redis.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { context, trace } from "@opentelemetry/api";
-import { createBlock } from "@collab/shared";
+import { createBlock } from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { RedisRoomBroadcaster } from "../src/redis/broadcaster.js";
@@ -18,7 +19,7 @@ import { traced } from "../src/jobs/workers.js";
  * root spans.
  */
 describe("distributed tracing", () => {
-  const redisClients: RedisMock[] = [];
+  const redisClients: Redis[] = [];
 
   beforeEach(() => {
     testSpanExporter.reset();
@@ -28,24 +29,27 @@ describe("distributed tracing", () => {
     for (const client of redisClients.splice(0)) client.disconnect();
   });
 
-  it("nests a persisted doc update's persistence span under the room's doc_update span", async () => {
+  it("nests a persisted doc update's commit and persistence spans under the room's doc_update span", async () => {
     const pool = await createTestPool();
     const pageStore = new PageStore(pool);
-    const registry = new RoomRegistry(pageStore);
+    const registry = new RoomRegistry({ pageStore });
     const room = await registry.getOrCreateRoom("trace-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "hello" });
 
-    await vi_waitFor(() => testSpanExporter.getFinishedSpans().some((s) => s.name === "persistence.record_update"));
+    await vi_waitFor(() => testSpanExporter.getFinishedSpans().some((s) => s.name === "room.commit_batch"));
 
     const spans = testSpanExporter.getFinishedSpans();
     const docUpdateSpan = spans.find((s) => s.name === "room.doc_update");
-    const persistSpan = spans.find((s) => s.name === "persistence.record_update");
+    const commitSpan = spans.find((s) => s.name === "room.commit_batch");
+    const persistSpan = spans.find((s) => s.name === "persistence.record_updates");
 
     expect(docUpdateSpan).toBeDefined();
+    expect(commitSpan).toBeDefined();
     expect(persistSpan).toBeDefined();
     expect(persistSpan!.spanContext().traceId).toBe(docUpdateSpan!.spanContext().traceId);
-    expect(persistSpan!.parentSpanContext?.spanId).toBe(docUpdateSpan!.spanContext().spanId);
+    expect(commitSpan!.parentSpanContext?.spanId).toBe(docUpdateSpan!.spanContext().spanId);
+    expect(persistSpan!.parentSpanContext?.spanId).toBe(commitSpan!.spanContext().spanId);
   });
 
   it("continues the enqueueing trace in the worker via the traceparent carried in job data (queue boundary)", async () => {
@@ -73,17 +77,17 @@ describe("distributed tracing", () => {
   });
 
   it("continues the same trace across a Redis-fanned-out update to another instance (cross-process)", async () => {
-    const pub = new RedisMock();
-    const sub = new RedisMock();
+    const pub = createTestRedis();
+    const sub = createTestRedis();
     redisClients.push(pub, sub);
-    const broadcasterA = new RedisRoomBroadcaster(pub as never, sub as never);
-    const registryA = new RoomRegistry(null, broadcasterA);
+    const broadcasterA = new RedisRoomBroadcaster(pub, sub);
+    const registryA = new RoomRegistry({ broadcaster: broadcasterA });
 
-    const pub2 = new RedisMock();
-    const sub2 = new RedisMock();
+    const pub2 = createTestRedis();
+    const sub2 = createTestRedis();
     redisClients.push(pub2, sub2);
-    const broadcasterB = new RedisRoomBroadcaster(pub2 as never, sub2 as never);
-    const registryB = new RoomRegistry(null, broadcasterB);
+    const broadcasterB = new RedisRoomBroadcaster(pub2, sub2);
+    const registryB = new RoomRegistry({ broadcaster: broadcasterB });
 
     const roomA = await registryA.getOrCreateRoom("cross-instance-page");
     const roomB = await registryB.getOrCreateRoom("cross-instance-page");

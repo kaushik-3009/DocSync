@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 import { findUserByEmail } from "../auth/users.js";
 
 export type InvitationRole = Exclude<Role, "owner">;
@@ -103,10 +103,7 @@ async function respondToRow(client: PoolClient, invitationId: string, userId: st
       [row.document_id, userId, row.role]
     );
   }
-  await client.query(
-    "UPDATE document_invitations SET status = $2, responded_at = now() WHERE id = $1",
-    [invitationId, status]
-  );
+  await client.query("UPDATE document_invitations SET status = $2, responded_at = now() WHERE id = $1", [invitationId, status]);
   await client.query("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND payload->>'invitationId' = $2", [
     userId,
     invitationId,
@@ -147,7 +144,13 @@ export async function respondToInvitationToken(
 }
 
 export async function listNotifications(pool: Pool, userId: string) {
-  const result = await pool.query<{ id: string; type: string; payload: Record<string, unknown>; read_at: string | null; created_at: string }>(
+  const result = await pool.query<{
+    id: string;
+    type: string;
+    payload: Record<string, unknown>;
+    read_at: string | null;
+    created_at: string;
+  }>(
     `SELECT id, type, payload, read_at, created_at FROM notifications
      WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
     [userId]
@@ -174,21 +177,25 @@ export async function materializePendingInvitationsForUser(pool: Pool, user: { i
     [user.email.toLowerCase()]
   );
   for (const invitation of pending.rows) {
-    const alreadyExists = await pool.query(
-      "SELECT 1 FROM notifications WHERE user_id = $1 AND payload->>'invitationId' = $2",
-      [user.id, invitation.id]
-    );
+    const alreadyExists = await pool.query("SELECT 1 FROM notifications WHERE user_id = $1 AND payload->>'invitationId' = $2", [
+      user.id,
+      invitation.id,
+    ]);
     if ((alreadyExists.rowCount ?? 0) > 0) continue;
     await pool.query(
       `INSERT INTO notifications (id, user_id, type, payload)
        VALUES ($1, $2, 'document_invitation', $3::jsonb)`,
-      [randomUUID(), user.id, JSON.stringify({
-        invitationId: invitation.id,
-        documentId: invitation.document_id,
-        documentTitle: invitation.title,
-        inviterEmail: invitation.inviter_email,
-        role: invitation.role,
-      })]
+      [
+        randomUUID(),
+        user.id,
+        JSON.stringify({
+          invitationId: invitation.id,
+          documentId: invitation.document_id,
+          documentTitle: invitation.title,
+          inviterEmail: invitation.inviter_email,
+          role: invitation.role,
+        }),
+      ]
     );
   }
 }

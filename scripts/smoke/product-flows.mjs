@@ -52,20 +52,29 @@ assert(notification, "invitee notification missing");
 const accepted = await request(`/invitations/${invitation.value.invitationId}/accept`, { token: inviteeToken, method: "POST", body: {} });
 assert(accepted.status === 200, "invitation acceptance failed");
 const afterAccept = await request("/documents", { token: inviteeToken });
-assert(afterAccept.value.documents.some((item) => item.id === documentId && item.role === "viewer"), "accepted viewer document missing");
+assert(
+  afterAccept.value.documents.some((item) => item.id === documentId && item.role === "viewer"),
+  "accepted viewer document missing"
+);
 
-const assistant = await request(`/pages/${documentId}/assistant`, { token: inviteeToken, method: "POST", body: { prompt: "Summarize this document" } });
+const assistant = await request(`/pages/${documentId}/assistant`, {
+  token: inviteeToken,
+  method: "POST",
+  body: { prompt: "Summarize this document" },
+});
 assert(assistant.status === 503, "unconfigured assistant should fail closed");
 
-console.log(JSON.stringify({
-  passed: true,
-  checks: [
-    "private workspace isolation",
-    "unauthorized read denial",
-    "pending invitation grants no access",
-    "in-app invitation persistence",
-    "explicit viewer acceptance",
-    "AI provider fails closed without a key",
-  ],
-  emailStatus: invitation.value.emailStatus,
-}));
+console.log(
+  JSON.stringify({
+    passed: true,
+    checks: [
+      "private workspace isolation",
+      "unauthorized read denial",
+      "pending invitation grants no access",
+      "in-app invitation persistence",
+      "explicit viewer acceptance",
+      "AI provider fails closed without a key",
+    ],
+    emailStatus: invitation.value.emailStatus,
+  })
+);

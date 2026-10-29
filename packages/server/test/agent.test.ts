@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
-import { createBlock, getBlockText, getTitleText, serializeDocument } from "@collab/shared";
-import { applyAgentPlan, parseAgentPlan } from "../src/ai/agent.js";
+import { createBlock, getBlockText, getTitleText, serializeDocument } from "@docsync/shared";
+import { AGENT_PLAN_JSON_SCHEMA, applyAgentPlan, parseAgentPlan } from "../src/ai/agent.js";
 
 describe("Gemini editing agent boundary", () => {
   it("accepts only the typed operation vocabulary", () => {
@@ -10,10 +10,17 @@ describe("Gemini editing agent boundary", () => {
       operations: [{ op: "set_title", text: "Short title" }],
     });
     expect(() => parseAgentPlan('{"summary":"bad","operations":[{"op":"run_code","source":"rm -rf"}]}')).toThrow("unsupported");
-    expect(parseAgentPlan(JSON.stringify({ message: "Add two blocks", edits: [
-      { action: "add_block", blockType: "code", content: "print(\\\"Hello, world!\\\")" },
-      { action: "insert", type: "paragraph", text: "A short essay follows." },
-    ]})).operations).toHaveLength(2);
+    expect(
+      parseAgentPlan(
+        JSON.stringify({
+          message: "Add two blocks",
+          edits: [
+            { action: "add_block", blockType: "code", content: 'print(\\"Hello, world!\\")' },
+            { action: "insert", type: "paragraph", text: "A short essay follows." },
+          ],
+        })
+      ).operations
+    ).toHaveLength(2);
   });
 
   it("applies validated edits to a detached Yjs document", () => {
@@ -32,5 +39,20 @@ describe("Gemini editing agent boundary", () => {
     expect(serializeDocument(doc)).toHaveLength(2);
     expect(serializeDocument(doc)[1]?.type).toBe("todo");
     expect(serializeDocument(doc)[1]?.text).toBe("Publish");
+  });
+
+  it("accepts an exact structured-output plan without the alias heuristics", () => {
+    const plan = parseAgentPlan(JSON.stringify({ summary: "Retitle", operations: [{ op: "set_title", text: "Q3 plan" }] }));
+    expect(plan).toEqual({ summary: "Retitle", operations: [{ op: "set_title", text: "Q3 plan" }] });
+  });
+
+  it("advertises every operation in the provider schema without keywords Gemini rejects", () => {
+    const schema = JSON.stringify(AGENT_PLAN_JSON_SCHEMA);
+    for (const op of ["replace_text", "set_block_type", "set_checked", "set_language", "insert_block", "delete_block", "set_title"]) {
+      expect(schema).toContain(`"enum":["${op}"]`);
+    }
+    expect(schema).not.toContain('"const"');
+    expect(schema).not.toContain("$schema");
+    expect(schema).not.toContain("maxItems"); // Gemini answers HTTP 400 to the whole request
   });
 });

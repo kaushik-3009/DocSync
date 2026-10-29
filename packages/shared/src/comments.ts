@@ -5,8 +5,8 @@ import * as Y from "yjs";
  * parallel to blocks.ts's `doc.getMap("blocks")`) rather than in their own
  * side-channel. That's a deliberate reuse, not the obvious default: it means
  * comments get real-time sync (the existing wire protocol/Room broadcast
- * path), durability (Phase 2's ops-log/snapshot persistence), and
- * multi-instance fanout (Phase 4's Redis pub/sub) for free — none of that
+ * path), durability (ops-log/snapshot persistence), and
+ * multi-instance fanout (Redis pub/sub) for free — none of that
  * plumbing needs to know comments exist. The one place that *does* need to
  * know is server-side mention indexing (see server/src/comments/), which
  * reads this same map after a persisted update rather than through some

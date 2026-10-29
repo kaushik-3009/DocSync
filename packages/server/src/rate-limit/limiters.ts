@@ -1,19 +1,23 @@
-import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes, type IRateLimiterOptions, type RateLimiterAbstract } from "rate-limiter-flexible";
+import {
+  RateLimiterMemory,
+  RateLimiterRedis,
+  RateLimiterRes,
+  type IRateLimiterOptions,
+  type RateLimiterAbstract,
+} from "rate-limiter-flexible";
 import type Redis from "ioredis";
 
 /**
  * Backed by Redis when available (so limits are shared across instances —
  * without this, a single abusive client round-robined across N instances by
- * the Phase 4 load balancer would effectively get N times the limit) and by
+ * the load balancer would effectively get N times the limit) and by
  * an in-process fallback otherwise. The in-memory fallback is a real,
- * documented limitation, not a silent gap: see ARCHITECTURE.md's Phase 7
+ * documented limitation, not a silent gap: see the README's
  * section and the `instanceOnly` idea already established for presence
- * (Phase 3/4) and applied the same way here.
+ * and applied the same way here.
  */
 function makeLimiter(redis: Redis | null, opts: Omit<IRateLimiterOptions, "storeClient">): RateLimiterAbstract {
-  return redis
-    ? new RateLimiterRedis({ storeClient: redis, ...opts })
-    : new RateLimiterMemory(opts);
+  return redis ? new RateLimiterRedis({ storeClient: redis, ...opts }) : new RateLimiterMemory(opts);
 }
 
 /** Benchmark-only overrides are supplied by the isolated compose overlay, not
@@ -27,8 +31,11 @@ function configuredPoints(value: string | undefined, fallback: number): number {
 /** Brute-force protection on login: keyed by IP+email so one attacker can't lock out
  *  a victim's account by spamming failed logins under someone else's IP, and one IP
  *  can't brute-force many accounts by spreading attempts thin across emails. */
-export function createLoginLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:login", points: 5, duration: 60, blockDuration: 60 });
+export function createLoginLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.LOGIN_RATE_LIMIT_POINTS, 5)
+): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:login", points, duration: 60, blockDuration: 60 });
 }
 
 /** Registration attempts, keyed by IP. `/auth/register` necessarily returns a
@@ -38,12 +45,18 @@ export function createLoginLimiter(redis: Redis | null): RateLimiterAbstract {
  *  mainstream signup flow relies on) — this doesn't remove that oracle, but
  *  a much tighter budget than the general HTTP limiter keeps it too slow to
  *  use for bulk email enumeration. */
-export function createRegisterLimiter(redis: Redis | null): RateLimiterAbstract {
-  return makeLimiter(redis, { keyPrefix: "rl:register", points: 5, duration: 60, blockDuration: 300 });
+export function createRegisterLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.REGISTER_RATE_LIMIT_POINTS, 5)
+): RateLimiterAbstract {
+  return makeLimiter(redis, { keyPrefix: "rl:register", points, duration: 60, blockDuration: 300 });
 }
 
 /** General HTTP request limiting, keyed by IP (or userId when authenticated). */
-export function createHttpLimiter(redis: Redis | null, points = configuredPoints(process.env.HTTP_RATE_LIMIT_POINTS, 120)): RateLimiterAbstract {
+export function createHttpLimiter(
+  redis: Redis | null,
+  points = configuredPoints(process.env.HTTP_RATE_LIMIT_POINTS, 120)
+): RateLimiterAbstract {
   return makeLimiter(redis, { keyPrefix: "rl:http", points, duration: 60 });
 }
 
@@ -81,10 +94,7 @@ export function createWsMessageLimiter(): RateLimiterAbstract {
  * that tradeoff for a rate limiter, which exists to shed abusive load, not
  * to be a second point of failure for legitimate traffic.
  */
-export async function tryConsume(
-  limiter: RateLimiterAbstract,
-  key: string
-): Promise<{ allowed: boolean; infraError?: unknown }> {
+export async function tryConsume(limiter: RateLimiterAbstract, key: string): Promise<{ allowed: boolean; infraError?: unknown }> {
   try {
     await limiter.consume(key);
     return { allowed: true };

@@ -7,7 +7,7 @@ import { WebsocketProvider } from "y-websocket";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import { createTestPool } from "./helpers/test-db.js";
 import { createUser, verifyCredentials, EmailAlreadyRegisteredError } from "../src/auth/users.js";
-import { signToken, verifyToken } from "../src/auth/jwt.js";
+import { signToken, verifyToken, WS_PROTOCOL, wsAuthProtocol } from "../src/auth/jwt.js";
 import {
   resolveRoleForConnection,
   grantRole,
@@ -20,7 +20,7 @@ import {
 import { recordAudit, listAuditLog } from "../src/auth/audit.js";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway, type WsAuthConfig } from "../src/ws-gateway.js";
-import { createBlock, getBlockText, serializeDocument } from "@collab/shared";
+import { createBlock, getBlockText, serializeDocument } from "@docsync/shared";
 import { createDocument } from "../src/documents/store.js";
 
 const JWT_SECRET = "test-secret";
@@ -190,9 +190,14 @@ describe("ws-gateway with auth enabled", () => {
   });
 
   function connect(pageId: string, doc: Y.Doc, token?: string): WebsocketProvider {
+    // Same shape as the browser client: the token rides in a subprotocol.
+    class AuthenticatedSocket extends ws {
+      constructor(url: string) {
+        super(url, token ? [WS_PROTOCOL, wsAuthProtocol(token)] : [WS_PROTOCOL]);
+      }
+    }
     return new WebsocketProvider(`ws://localhost:${port}/ws`, pageId, doc, {
-      WebSocketPolyfill: ws as unknown as typeof WebSocket,
-      params: token ? { token } : {},
+      WebSocketPolyfill: AuthenticatedSocket as unknown as typeof WebSocket,
       // y-websocket's default cross-tab BroadcastChannel sync (lib0/broadcastchannel) works
       // across same-room providers within a single process, not just real browser tabs — with
       // it left on, two clients in this test process sync directly in-memory and never touch
@@ -255,12 +260,31 @@ describe("ws-gateway with auth enabled", () => {
     await createTestDocument("page-b", owner.id);
 
     const newcomerToken = signToken({ sub: newcomer.id, email: newcomer.email }, JWT_SECRET);
-    const socket = new ws(`ws://localhost:${port}/ws/page-b?token=${encodeURIComponent(newcomerToken)}`);
+    const socket = new ws(`ws://localhost:${port}/ws/page-b`, [WS_PROTOCOL, wsAuthProtocol(newcomerToken)]);
     const closeCode = await new Promise<number>((resolve) => {
       socket.on("close", (code: number) => resolve(code));
     });
     expect(closeCode).toBe(4403);
     expect(await getExistingRole(pool, "page-b", newcomer.id)).toBeNull();
+  });
+
+  it("ignores a token passed in the URL", async () => {
+    const owner = await createUser(pool, "owner3@example.com", "pw");
+    await createTestDocument("page-c", owner.id);
+    const token = signToken({ sub: owner.id, email: owner.email }, JWT_SECRET);
+    const socket = new ws(`ws://localhost:${port}/ws/page-c?token=${encodeURIComponent(token)}`);
+    const closeCode = await new Promise<number>((resolve) => socket.on("close", (code: number) => resolve(code)));
+    expect(closeCode).toBe(4401);
+  });
+
+  it("selects the docsync subprotocol and never echoes the auth protocol", async () => {
+    const owner = await createUser(pool, "owner4@example.com", "pw");
+    await createTestDocument("page-d", owner.id);
+    const token = signToken({ sub: owner.id, email: owner.email }, JWT_SECRET);
+    const socket = new ws(`ws://localhost:${port}/ws/page-d`, [WS_PROTOCOL, wsAuthProtocol(token)]);
+    await new Promise((resolve) => socket.once("open", resolve));
+    expect(socket.protocol).toBe(WS_PROTOCOL);
+    socket.close();
   });
 });
 

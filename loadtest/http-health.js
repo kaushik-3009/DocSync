@@ -4,7 +4,7 @@ import { Trend } from "k6/metrics";
 
 /**
  * Raw HTTP capacity test: hammers only `/health`, which is deliberately
- * exempt from Phase 7's rate limiter (see index.ts's routeLabelFor /
+ * exempt from the HTTP rate limiter (see http/app.ts's UNLIMITED_ROUTES /
  * rate-limit skip list) — this measures the server's own request-handling
  * throughput/latency, not the rate limiter's cutoff (that's http-rate-limit.js).
  *

@@ -9,7 +9,7 @@ import {
   commentsForBlock,
   serializeComments,
   extractMentionEmails,
-} from "@collab/shared";
+} from "@docsync/shared";
 import { createTestPool } from "./helpers/test-db.js";
 import { createUser } from "../src/auth/users.js";
 import { MentionsStore } from "../src/comments/mentions-store.js";
@@ -73,9 +73,10 @@ describe("comments (shared Y.Doc helpers)", () => {
   it("extracts distinct mentioned emails and ignores plain text", () => {
     expect(extractMentionEmails("no mentions here")).toEqual([]);
     expect(extractMentionEmails("hey @alice@example.com can you look?")).toEqual(["alice@example.com"]);
-    expect(
-      extractMentionEmails("cc @alice@example.com and @bob@example.com, also @alice@example.com again")
-    ).toEqual(["alice@example.com", "bob@example.com"]);
+    expect(extractMentionEmails("cc @alice@example.com and @bob@example.com, also @alice@example.com again")).toEqual([
+      "alice@example.com",
+      "bob@example.com",
+    ]);
   });
 });
 
@@ -84,7 +85,7 @@ describe("comments sync and persist through the existing Y.Doc pipeline", () => 
     const pool = await createTestPool();
     const pageStore = new PageStore(pool);
 
-    const registryBefore = new RoomRegistry(pageStore);
+    const registryBefore = new RoomRegistry({ pageStore });
     const room = await registryBefore.getOrCreateRoom("commented-page");
     createBlock(room.doc, "b1", { type: "paragraph", text: "hello" });
     createComment(room.doc, "c1", { blockId: "b1", authorId: "u1", authorName: "Alice", text: "looks good" });
@@ -94,7 +95,7 @@ describe("comments sync and persist through the existing Y.Doc pipeline", () => 
     // pg-mem; the assertion is about persisted history, not scheduler timing.
     await waitFor(async () => (await getCurrentSeq(pool, "commented-page")) >= 2);
 
-    const registryAfter = new RoomRegistry(pageStore);
+    const registryAfter = new RoomRegistry({ pageStore });
     const reloaded = await registryAfter.getOrCreateRoom("commented-page");
     expect(commentsForBlock(reloaded.doc, "b1")).toMatchObject([{ text: "looks good", authorName: "Alice" }]);
   });
@@ -113,10 +114,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
     const pool = await createTestPool();
     const author = await createUser(pool, "author@example.com", "pw123456");
     const mentioned = await createUser(pool, "mentioned@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", [
-      "mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'owner')", ["mention-page", mentioned.id]);
 
     const mentionsStore = new MentionsStore(pool);
     await mentionsStore.recordMentions({
@@ -155,14 +153,11 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("Room automatically indexes @mentions after persisting a comment, end to end", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "teammate@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "auto-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["auto-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("auto-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });
@@ -181,14 +176,11 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("indexes a mention added by editing a comment that first had none", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "late-mention@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "edit-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["edit-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("edit-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });
@@ -196,7 +188,7 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
 
     // Give the first (mention-less) scan a chance to mark c1 as seen before editing it.
     await new Promise((resolve) => setTimeout(resolve, 50));
-    room.doc.getMap("comments").get("c1")!.set("text", `@${mentioned.email} now look at this`);
+    (room.doc.getMap("comments").get("c1") as Y.Map<unknown>).set("text", `@${mentioned.email} now look at this`);
 
     await vi_waitFor(async () => (await mentionsStore.listMentionsForUser(mentioned.id)).length === 1);
   });
@@ -204,14 +196,11 @@ describe("mention indexing (MentionsStore + Room integration)", () => {
   it("removes indexed mentions once their comment is deleted", async () => {
     const pool = await createTestPool();
     const mentioned = await createUser(pool, "deleted-comment@example.com", "pw123456");
-    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", [
-      "delete-mention-page",
-      mentioned.id,
-    ]);
+    await pool.query("INSERT INTO page_roles (page_id, user_id, role) VALUES ($1, $2, 'editor')", ["delete-mention-page", mentioned.id]);
 
     const pageStore = new PageStore(pool);
     const mentionsStore = new MentionsStore(pool);
-    const registry = new RoomRegistry(pageStore, null, null, mentionsStore);
+    const registry = new RoomRegistry({ pageStore, mentionsStore });
     const room = await registry.getOrCreateRoom("delete-mention-page");
 
     createBlock(room.doc, "b1", { type: "paragraph", text: "draft" });

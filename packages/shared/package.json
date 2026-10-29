@@ -1,5 +1,5 @@
 {
-  "name": "@collab/shared",
+  "name": "@docsync/shared",
   "version": "0.0.0",
   "type": "module",
   "main": "src/index.ts",

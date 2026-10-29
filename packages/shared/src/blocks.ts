@@ -10,12 +10,12 @@ import { computeTextDiff, type DeltaOp } from "./delta.js";
  *
  * Each block is its own Y.Map so that inserting/editing/reordering one block
  * never touches the Yjs state of any other block — that's what makes blocks
- * "independently syncable" and keeps future per-block features (Phase 2
- * snapshots, Phase 6 search indexing) cheap: you can diff/snapshot/index one
+ * "independently syncable" and keeps future per-block features (snapshots,
+ * search indexing) cheap: you can diff/snapshot/index one
  * block's Y.Map without walking the whole document.
  *
  * Nesting: every block's `children` field (a `Y.Array<string>`, present
- * since Phase 1 but unused until now) holds the ids of blocks indented
+ * on every block) holds the ids of blocks indented
  * under it, forming a real tree — `root` is just the depth-0 level of that
  * same tree, not a separate concept. A block's *current* parent (root, or
  * some other block's `children` array) is never stored on the block itself;
@@ -25,7 +25,7 @@ import { computeTextDiff, type DeltaOp } from "./delta.js";
  * source of truth.
  */
 
-export type BlockType = "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code";
+export type BlockType = "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code" | "image";
 
 export type CodeLanguage = "javascript" | "python" | "plaintext";
 
@@ -71,12 +71,7 @@ function createBlockMap(init: BlockFieldsInit, presetText?: Y.Text): Y.Map<unkno
 }
 
 /** Creates a block's Y.Map and appends it to the root order, inside one transaction. */
-export function createBlock(
-  doc: Y.Doc,
-  blockId: string,
-  init: BlockFieldsInit,
-  index?: number
-): void {
+export function createBlock(doc: Y.Doc, blockId: string, init: BlockFieldsInit, index?: number): void {
   doc.transact(() => {
     getBlocksMap(doc).set(blockId, createBlockMap(init));
 
@@ -101,6 +96,18 @@ export function setBlockChecked(doc: Y.Doc, blockId: string, checked: boolean): 
   const block = getBlocksMap(doc).get(blockId);
   if (!block) return;
   doc.transact(() => block.set("checked", checked));
+}
+
+/** Only meaningful for `type: "image"` blocks: the upload holding the image.
+ *  Stores an id rather than a URL — image URLs are short-lived and signed,
+ *  issued per viewer after an access check. */
+export function setBlockImage(doc: Y.Doc, blockId: string, uploadId: string | null): void {
+  const block = getBlocksMap(doc).get(blockId);
+  if (!block) return;
+  doc.transact(() => {
+    block.set("type", "image");
+    block.set("uploadId", uploadId);
+  });
 }
 
 /** Only meaningful for `type: "code"` blocks — which syntax highlighting
@@ -182,8 +189,7 @@ export function outdentBlock(doc: Y.Doc, blockId: string): void {
  * suffix is deleted from the original `Y.Text` — never delete-and-reinsert
  * the kept prefix, which would tombstone its underlying CRDT items and
  * orphan any concurrent remote edit anchored inside it (e.g. someone else
- * formatting a word in the prefix at the same instant). See docs/DESIGN.md
- * Section 4.
+ * formatting a word in the prefix at the same instant).
  */
 export function splitBlock(doc: Y.Doc, blockId: string, offset: number, newBlockId: string): boolean {
   const blocksMap = getBlocksMap(doc);
@@ -252,10 +258,7 @@ export function insertBlockAfter(doc: Y.Doc, afterBlockId: string, newBlockId: s
  * surviving block's id and the character offset the content was joined at
  * (so the caller can place the caret there), or null if this was a no-op.
  */
-export function mergeBlockIntoPrevious(
-  doc: Y.Doc,
-  blockId: string
-): { survivingBlockId: string; joinOffset: number } | null {
+export function mergeBlockIntoPrevious(doc: Y.Doc, blockId: string): { survivingBlockId: string; joinOffset: number } | null {
   const loc = findLocation(doc, blockId);
   if (!loc || loc.index === 0) return null;
 
@@ -333,6 +336,8 @@ export interface SerializedBlock {
   text: string;
   checked: boolean;
   language: CodeLanguage;
+  /** Set for `type: "image"` blocks. */
+  uploadId: string | null;
   children: SerializedBlock[];
 }
 
@@ -345,6 +350,7 @@ function serializeBlock(blocksMap: Y.Map<Y.Map<unknown>>, id: string): Serialize
     text: (block?.get("text") as Y.Text | undefined)?.toString() ?? "",
     checked: (block?.get("checked") as boolean) ?? false,
     language: (block?.get("language") as CodeLanguage) ?? "javascript",
+    uploadId: (block?.get("uploadId") as string | undefined) ?? null,
     children: childIds.map((childId) => serializeBlock(blocksMap, childId)),
   };
 }
@@ -364,8 +370,7 @@ export interface SerializedBlockWithDelta extends Omit<SerializedBlock, "childre
   /** The block's formatted content as a Quill/Yjs-style delta — needed
    *  because a version-history preview must render bold/italic/link marks
    *  without instantiating a live `RichText`/`CodeBlock`/`CanvasBlock` bound
-   *  to a Y.Doc state that was never actually live (see docs/DESIGN.md
-   *  Section 4). `renderDelta()` (packages/client/src/renderDelta.tsx) is
+   *  to a Y.Doc state that was never actually live. `renderDelta()` (packages/client/src/renderDelta.tsx) is
    *  the one renderer both the live editor and this preview share. */
   delta: DeltaOp[];
   children: SerializedBlockWithDelta[];
@@ -382,6 +387,7 @@ function serializeBlockWithDelta(blocksMap: Y.Map<Y.Map<unknown>>, id: string): 
     delta: ytext ? (ytext.toDelta() as DeltaOp[]) : [],
     checked: (block?.get("checked") as boolean) ?? false,
     language: (block?.get("language") as CodeLanguage) ?? "javascript",
+    uploadId: (block?.get("uploadId") as string | undefined) ?? null,
     children: childIds.map((childId) => serializeBlockWithDelta(blocksMap, childId)),
   };
 }
@@ -406,7 +412,7 @@ export function serializeDocumentWithDeltas(doc: Y.Doc): SerializedBlockWithDelt
  * rebuilding would replace even *unchanged* blocks' Y.Map/Y.Text instances,
  * silently orphaning any in-flight concurrent edit targeting the old
  * instances (e.g. someone mid-keystroke in a paragraph that didn't change
- * between versions). See docs/DESIGN.md Section 4.
+ * between versions)..
  *
  * A block that *moved* to a different parent between the live doc and the
  * snapshot is recreated fresh at its new location rather than relocated in
@@ -450,7 +456,7 @@ function restoreOrder(doc: Y.Doc, liveArray: Y.Array<string>, snapshotBlocks: Se
   // Reconcile order to match the snapshot exactly. Content/children are
   // already restored above, so this only ever moves *where* an id sits.
   const snapshotIds = snapshotBlocks.map((b) => b.id);
-  if (liveArray.toArray().join(" ") !== snapshotIds.join(" ")) {
+  if (liveArray.toArray().join("\u0000") !== snapshotIds.join("\u0000")) {
     liveArray.delete(0, liveArray.length);
     liveArray.push(snapshotIds);
   }
@@ -467,6 +473,7 @@ function restoreBlockContent(blocksMap: Y.Map<Y.Map<unknown>>, snapshotBlock: Se
     block = createBlockMap({ type: snapshotBlock.type, text: snapshotBlock.text });
     block.set("checked", snapshotBlock.checked);
     block.set("language", snapshotBlock.language);
+    if (snapshotBlock.uploadId) block.set("uploadId", snapshotBlock.uploadId);
     blocksMap.set(snapshotBlock.id, block);
     return;
   }
@@ -475,6 +482,7 @@ function restoreBlockContent(blocksMap: Y.Map<Y.Map<unknown>>, snapshotBlock: Se
   if (current.type !== snapshotBlock.type) block.set("type", snapshotBlock.type);
   if (current.checked !== snapshotBlock.checked) block.set("checked", snapshotBlock.checked);
   if (current.language !== snapshotBlock.language) block.set("language", snapshotBlock.language);
+  if (current.uploadId !== snapshotBlock.uploadId) block.set("uploadId", snapshotBlock.uploadId);
   if (current.text !== snapshotBlock.text) {
     const ytext = block.get("text") as Y.Text;
     const diff = computeTextDiff(current.text, snapshotBlock.text);

@@ -1,4 +1,4 @@
-import type { SerializedBlock } from "@collab/shared";
+import type { SerializedBlock } from "@docsync/shared";
 
 /** Depth-first order of every block id in the tree — the order a reader's
  *  eye (and Arrow Up/Down) actually moves through the document in, which is

@@ -1,9 +1,8 @@
--- Phase 2: ops log + snapshots for CRDT persistence and replay.
+-- Ops log + snapshots for CRDT persistence and replay.
 --
 -- page_seq gives each page a monotonically increasing, gap-free sequence
 -- number for its ops — this is what version history and replay-to-a-point
--- are built on top of (seq is the "version" in "version vectors" territory
--- Phase 3 will extend, not replace).
+-- are built on.
 CREATE TABLE IF NOT EXISTS page_seq (
   page_id TEXT PRIMARY KEY,
   seq BIGINT NOT NULL DEFAULT 0

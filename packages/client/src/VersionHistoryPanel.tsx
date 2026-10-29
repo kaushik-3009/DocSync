@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SerializedBlockWithDelta } from "@collab/shared";
+import type { SerializedBlockWithDelta } from "@docsync/shared";
 import { fetchVersions, fetchVersionAt, restoreVersion, type VersionSummary } from "./api.js";
 import { formatRelativeTime } from "./relativeTime.js";
 import { renderDelta } from "./renderDelta.js";
@@ -51,6 +51,8 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
       cancelled = true;
       clearInterval(interval);
     };
+    // selectVersion is recreated every render; the poll is keyed by page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, refreshTick]);
 
   function selectVersion(seq: number, sourceVersions = versions ?? []) {
@@ -64,10 +66,7 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
     // Versions are newest-first. The immediately older logical version is the
     // baseline, so the selected version can show additions/deletions like Docs.
     const baselineSeq = selectedIndex >= 0 ? sourceVersions[selectedIndex + 1]?.seq : undefined;
-    Promise.all([
-      fetchVersionAt(pageId, seq),
-      baselineSeq === undefined ? Promise.resolve(null) : fetchVersionAt(pageId, baselineSeq),
-    ])
+    Promise.all([fetchVersionAt(pageId, seq), baselineSeq === undefined ? Promise.resolve(null) : fetchVersionAt(pageId, baselineSeq)])
       .then(([selected, previous]) => {
         if (selectedSeqRef.current === seq) {
           setPreview(selected.blocks);
@@ -100,12 +99,19 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
     <div className="version-panel-overlay" role="presentation">
       <div className="version-history-shell" role="dialog" aria-label="Version history">
         <header className="version-history-topbar">
-          <button type="button" className="version-history-back" onClick={onClose} aria-label="Close version history">←</button>
+          <button type="button" className="version-history-back" onClick={onClose} aria-label="Close version history">
+            ←
+          </button>
           <div className="version-history-title">
             <strong>Version history</strong>
-            <span className="version-history-live"><span className="version-history-live-dot" />Live</span>
+            <span className="version-history-live">
+              <span className="version-history-live-dot" />
+              Live
+            </span>
           </div>
-          <button type="button" className="version-panel-close" onClick={onClose} aria-label="Close version history">×</button>
+          <button type="button" className="version-panel-close" onClick={onClose} aria-label="Close version history">
+            ×
+          </button>
         </header>
 
         <div className="version-history-workspace">
@@ -116,22 +122,39 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
                 <strong>{selectedVersion ? formatVersionDate(selectedVersion.updatedAt) : "Choose a version"}</strong>
               </div>
               <div className="version-history-toolbar-meta">
-                {selectedVersion && <span>{selectedVersion.editCount} edit{selectedVersion.editCount === 1 ? "" : "s"}</span>}
+                {selectedVersion && (
+                  <span>
+                    {selectedVersion.editCount} edit{selectedVersion.editCount === 1 ? "" : "s"}
+                  </span>
+                )}
                 {showSequenceRanges && <span>{selectedVersion ? `${selectedVersion.startSeq}–${selectedVersion.endSeq}` : ""}</span>}
               </div>
               <div className="version-history-toolbar-actions">
                 {restored ? (
                   <span className="version-restored-message">Version restored ✓</span>
-                ) : selectedVersion && !isCurrentVersion && preview ? confirmingRestore ? (
-                  <div className="version-restore-confirm" role="alertdialog" aria-label="Confirm version restore">
-                    <span>Restore this version?</span>
-                    <div className="version-restore-confirm-actions">
-                      <button type="button" className="version-restore-primary" onClick={confirmRestore} disabled={restoring}>{restoring ? "Restoring…" : "Restore"}</button>
-                      <button type="button" className="version-restore-secondary" onClick={() => setConfirmingRestore(false)} disabled={restoring}>Cancel</button>
+                ) : selectedVersion && !isCurrentVersion && preview ? (
+                  confirmingRestore ? (
+                    <div className="version-restore-confirm" role="alertdialog" aria-label="Confirm version restore">
+                      <span>Restore this version?</span>
+                      <div className="version-restore-confirm-actions">
+                        <button type="button" className="version-restore-primary" onClick={confirmRestore} disabled={restoring}>
+                          {restoring ? "Restoring…" : "Restore"}
+                        </button>
+                        <button
+                          type="button"
+                          className="version-restore-secondary"
+                          onClick={() => setConfirmingRestore(false)}
+                          disabled={restoring}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <button type="button" className="version-restore-btn" onClick={() => setConfirmingRestore(true)}>Restore version</button>
+                  ) : (
+                    <button type="button" className="version-restore-btn" onClick={() => setConfirmingRestore(true)}>
+                      Restore version
+                    </button>
+                  )
                 ) : null}
               </div>
             </div>
@@ -146,17 +169,27 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
                 </div>
               )}
               {previewError && <div className="version-panel-message">{previewError}</div>}
-              {!previewError && selectedSeq !== null && preview === null && <div className="version-panel-message">Loading selected version…</div>}
+              {!previewError && selectedSeq !== null && preview === null && (
+                <div className="version-panel-message">Loading selected version…</div>
+              )}
               {preview && (
                 <div className="version-document-paper">
                   <div className="version-diff-legend" aria-label="Version diff legend">
-                    <span><mark className="version-diff-added">Added</mark></span>
-                    <span><mark className="version-diff-removed">Removed</mark></span>
+                    <span>
+                      <mark className="version-diff-added">Added</mark>
+                    </span>
+                    <span>
+                      <mark className="version-diff-removed">Removed</mark>
+                    </span>
                   </div>
-                  {preview.map((block) => <VersionDiffBlock key={block.id} block={block} before={findBlock(baseline ?? [], block.id)} depth={0} />)}
-                  {(baseline ?? []).filter((block) => !findBlock(preview, block.id)).map((block) => (
-                    <VersionDiffBlock key={`removed-${block.id}`} block={block} before={block} depth={0} removed />
+                  {preview.map((block) => (
+                    <VersionDiffBlock key={block.id} block={block} before={findBlock(baseline ?? [], block.id)} depth={0} />
                   ))}
+                  {(baseline ?? [])
+                    .filter((block) => !findBlock(preview, block.id))
+                    .map((block) => (
+                      <VersionDiffBlock key={`removed-${block.id}`} block={block} before={block} depth={0} removed />
+                    ))}
                 </div>
               )}
             </div>
@@ -166,14 +199,34 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
             <div className="version-history-sidebar-heading">
               <strong>Version history</strong>
               <div className="version-history-settings-wrap">
-                <button type="button" aria-label="Version history options" className="version-history-more" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⋮</button>
+                <button
+                  type="button"
+                  aria-label="Version history options"
+                  className="version-history-more"
+                  aria-expanded={settingsOpen}
+                  onClick={() => setSettingsOpen((open) => !open)}
+                >
+                  ⋮
+                </button>
                 {settingsOpen && (
                   <div className="version-history-settings-menu" role="menu">
-                    <button type="button" role="menuitem" onClick={() => { setSettingsOpen(false); setVersionFilter("all"); setRefreshTick((tick) => tick + 1); }}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setSettingsOpen(false);
+                        setVersionFilter("all");
+                        setRefreshTick((tick) => tick + 1);
+                      }}
+                    >
                       Refresh version list
                     </button>
                     <label role="menuitemcheckbox">
-                      <input type="checkbox" checked={showSequenceRanges} onChange={(event) => setShowSequenceRanges(event.target.checked)} />
+                      <input
+                        type="checkbox"
+                        checked={showSequenceRanges}
+                        onChange={(event) => setShowSequenceRanges(event.target.checked)}
+                      />
                       Show sequence ranges
                     </label>
                   </div>
@@ -203,8 +256,14 @@ export function VersionHistoryPanel({ pageId, onClose }: { pageId: string; onClo
                         <strong>{formatVersionDate(version.updatedAt)}</strong>
                         {version.seq === versions?.[0]?.seq && <span className="version-current-badge">Current</span>}
                       </span>
-                      <span className="version-item-subtitle">{version.editCount} edit{version.editCount === 1 ? "" : "s"} · {formatRelativeTime(new Date(version.updatedAt).getTime())}</span>
-                      <span className="version-item-author"><span className="version-author-dot" />Collaborators</span>
+                      <span className="version-item-subtitle">
+                        {version.editCount} edit{version.editCount === 1 ? "" : "s"} ·{" "}
+                        {formatRelativeTime(new Date(version.updatedAt).getTime())}
+                      </span>
+                      <span className="version-item-author">
+                        <span className="version-author-dot" />
+                        Collaborators
+                      </span>
                     </button>
                   ))}
                 </section>
@@ -248,9 +307,25 @@ function findBlock(blocks: SerializedBlockWithDelta[], id: string): SerializedBl
   return undefined;
 }
 
-function VersionDiffBlock({ block, before, depth, removed = false }: { block: SerializedBlockWithDelta; before?: SerializedBlockWithDelta; depth: number; removed?: boolean }) {
+function VersionDiffBlock({
+  block,
+  before,
+  depth,
+  removed = false,
+}: {
+  block: SerializedBlockWithDelta;
+  before?: SerializedBlockWithDelta;
+  depth: number;
+  removed?: boolean;
+}) {
   const isAdded = removed ? false : !before;
-  const changed = removed || isAdded || before?.text !== block.text || before?.type !== block.type || before?.checked !== block.checked || before?.language !== block.language;
+  const changed =
+    removed ||
+    isAdded ||
+    before?.text !== block.text ||
+    before?.type !== block.type ||
+    before?.checked !== block.checked ||
+    before?.language !== block.language;
   const childrenBefore = before?.children ?? [];
   return (
     <div style={{ marginLeft: `${depth * 1.25}rem` }}>
@@ -264,12 +339,24 @@ function VersionDiffBlock({ block, before, depth, removed = false }: { block: Se
       >
         {block.type === "todo" && <span aria-hidden="true">{block.checked ? "☑ " : "☐ "}</span>}
         {block.type === "bullet" && <span aria-hidden="true">• </span>}
-        {block.type === "canvas" ? <em>Canvas</em> : block.type === "code" ? <code>{changed ? renderInlineTextDiff(before?.text ?? "", block.text, removed) : block.text}</code> : changed ? renderInlineTextDiff(before?.text ?? "", block.text, removed) : renderDelta(block.delta)}
+        {block.type === "canvas" ? (
+          <em>Canvas</em>
+        ) : block.type === "code" ? (
+          <code>{changed ? renderInlineTextDiff(before?.text ?? "", block.text, removed) : block.text}</code>
+        ) : changed ? (
+          renderInlineTextDiff(before?.text ?? "", block.text, removed)
+        ) : (
+          renderDelta(block.delta)
+        )}
       </div>
-      {block.children.map((child) => <VersionDiffBlock key={child.id} block={child} before={findBlock(childrenBefore, child.id)} depth={depth + 1} />)}
-      {childrenBefore.filter((child) => !findBlock(block.children, child.id)).map((child) => (
-        <VersionDiffBlock key={`removed-${child.id}`} block={child} before={child} depth={depth + 1} removed />
+      {block.children.map((child) => (
+        <VersionDiffBlock key={child.id} block={child} before={findBlock(childrenBefore, child.id)} depth={depth + 1} />
       ))}
+      {childrenBefore
+        .filter((child) => !findBlock(block.children, child.id))
+        .map((child) => (
+          <VersionDiffBlock key={`removed-${child.id}`} block={child} before={child} depth={depth + 1} removed />
+        ))}
     </div>
   );
 }
@@ -281,6 +368,18 @@ function renderInlineTextDiff(before: string, after: string, removed: boolean) {
   let prefix = 0;
   while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
   let suffix = 0;
-  while (suffix < before.length - prefix && suffix < after.length - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix += 1;
-  return <>{after.slice(0, prefix)}<mark className="version-diff-removed">{before.slice(prefix, before.length - suffix)}</mark><mark className="version-diff-added">{after.slice(prefix, after.length - suffix)}</mark>{suffix ? after.slice(after.length - suffix) : null}</>;
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix += 1;
+  return (
+    <>
+      {after.slice(0, prefix)}
+      <mark className="version-diff-removed">{before.slice(prefix, before.length - suffix)}</mark>
+      <mark className="version-diff-added">{after.slice(prefix, after.length - suffix)}</mark>
+      {suffix ? after.slice(after.length - suffix) : null}
+    </>
+  );
 }

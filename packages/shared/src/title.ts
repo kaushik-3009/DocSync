@@ -1,4 +1,4 @@
-import * as Y from "yjs";
+import type * as Y from "yjs";
 
 /**
  * A page's title lives as its own top-level `Y.Text` (`doc.getText("title")`),

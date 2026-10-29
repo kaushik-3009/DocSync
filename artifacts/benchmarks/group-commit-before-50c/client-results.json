@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-10-28T18:16:49.472Z",
+  "finishedAt": "2026-10-28T18:16:56.084Z",
+  "settings": {
+    "clients": 50,
+    "operationsPerClient": 3,
+    "propagationTimeoutMs": 15000,
+    "origin": "http://localhost:1234",
+    "httpBaseUrl": "http://localhost:1234",
+    "wsBaseUrl": "ws://localhost:1234",
+    "wsBaseUrls": [
+      "ws://localhost:1234",
+      "ws://localhost:1235"
+    ],
+    "pageId": "bx3bwep5cg27",
+    "runId": "group-commit-before-50c",
+    "shardCount": 4,
+    "output": "artifacts/benchmarks/group-commit-before-50c/client-results.json",
+    "shards": 4
+  },
+  "connection": {
+    "successfulClients": 50,
+    "errors": 0
+  },
+  "mutations": {
+    "sent": 150,
+    "convergenceElapsedMs": 2519,
+    "canonicalHash": "0cb78457a69fc0a25b067db044ead2d0e277daf9552b5a5d62a507b8f684af4a",
+    "converged": true,
+    "observations": 7350,
+    "expectedPeerObservations": 7350,
+    "propagationLatencyMs": {
+      "count": 7350,
+      "p50": 1243,
+      "p95": 2264,
+      "p99": 2458
+    }
+  },
+  "limitations": [
+    "Latency is measured from the sending client's clock to each receiving client's clock; all shards share one host clock.",
+    "clientAcceptedUpdatesPerSecond measures updates generated and converged by the clients, not Postgres durable throughput.",
+    "scripts/benchmark/collect.sh must be run for per-gateway durable counters and platform utilization before reporting a benchmark result."
+  ]
+}

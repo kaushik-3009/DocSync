@@ -4,31 +4,32 @@ import * as decoding from "lib0/decoding";
 import * as syncProtocol from "y-protocols/sync";
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import type { WebSocket } from "ws";
-import { context, trace } from "@opentelemetry/api";
-import { MessageType, getCommentsMap, extractMentionEmails, type ClientMutationMetadata } from "@collab/shared";
+import { context, trace, type Context, type Link } from "@opentelemetry/api";
+import { MessageType, getCommentsMap, extractMentionEmails, type ClientMutationMetadata } from "@docsync/shared";
 import { childLogger } from "./logger.js";
 import type { PageStore } from "./persistence/page-store.js";
 import { updateFingerprint } from "./persistence/ops-log.js";
+import { clientIdsInUpdate } from "./authorship/attribution.js";
 import type { RoomBroadcaster } from "./redis/broadcaster.js";
 import type { JobQueues } from "./jobs/queues.js";
 import type { MentionsStore } from "./comments/mentions-store.js";
-import type { Role } from "@collab/shared";
+import type { Role } from "@docsync/shared";
 import { tracer } from "./tracing/tracer.js";
-import { collabUpdateDurabilitySeconds, collabUpdatesPending, collabUpdatesTotal } from "./metrics/registry.js";
+import { currentTraceparent } from "./tracing/propagation.js";
+import { collabCommitBatchSize, collabUpdateDurabilitySeconds, collabUpdatesPending, collabUpdatesTotal } from "./metrics/registry.js";
 import type { FanoutOutbox } from "./persistence/fanout-outbox.js";
 
-/** Transaction/awareness-update origin marker used when applying an update that arrived
- *  from another instance via Redis. Room checks `origin !== REMOTE_ORIGIN` before
- *  re-publishing to Redis or persisting — otherwise every instance would re-publish
- *  what it just received (infinite echo) and every instance would double-write the
- *  same op to the ops log. */
+/** Transaction/awareness origin for updates that arrived from another gateway
+ *  via Redis. They are already durable, so they are never re-persisted or
+ *  re-published (which would double-write the ops log and echo forever). */
 export const REMOTE_ORIGIN = Symbol("redis-remote-origin");
 
-/** Re-checks the authoritative page role immediately before a queued client
- * mutation crosses the durable admission boundary. The WebSocket handshake
+/** Re-checks the authoritative page roles immediately before queued client
+ * mutations cross the durable admission boundary. The WebSocket handshake
  * role is only a snapshot; an owner can revoke/downgrade it while the socket
- * remains open. */
-export type MutationAuthorizer = (pageId: string, userId: string) => Promise<Role | null>;
+ * remains open. Batched so a group commit costs one lookup, not one per edit.
+ * Users without a grant are absent from the returned map. */
+export type MutationAuthorizer = (pageId: string, userIds: string[]) => Promise<Map<string, Role>>;
 
 export class MutationAuthorizationError extends Error {
   constructor() {
@@ -36,6 +37,26 @@ export class MutationAuthorizationError extends Error {
     this.name = "MutationAuthorizationError";
   }
 }
+
+/** Optional collaborators. Each is absent in narrower deployments and tests:
+ * no `pageStore` means in-memory only, no `broadcaster` means single gateway,
+ * no `mutationAuthorizer` means auth is disabled. */
+export interface RoomDependencies {
+  pageStore?: PageStore | null;
+  broadcaster?: RoomBroadcaster | null;
+  jobQueues?: JobQueues | null;
+  mentionsStore?: MentionsStore | null;
+  fanoutOutbox?: FanoutOutbox | null;
+  mutationAuthorizer?: MutationAuthorizer | null;
+  /** Records which user each Yjs client id belongs to (authorship view). */
+  authorship?: { record(pageId: string, entries: Array<{ clientId: number; userId: string }>): Promise<void> } | null;
+  /** Upper bounds for one group commit. */
+  maxBatchUpdates?: number;
+  maxBatchBytes?: number;
+}
+
+const DEFAULT_MAX_BATCH_UPDATES = 256;
+const DEFAULT_MAX_BATCH_BYTES = 4 * 1024 * 1024;
 
 /**
  * Marks the *application* of a client update that already committed to the
@@ -57,32 +78,40 @@ function isDurableUpdateOrigin(origin: unknown): origin is DurableUpdateOrigin {
   return typeof origin === "object" && origin !== null && DURABLE_UPDATE_ORIGIN in origin;
 }
 
+/** One update waiting for the next group commit. */
+interface PendingMutation {
+  update: Uint8Array;
+  source?: WebSocket;
+  metadata?: ClientMutationMetadata;
+  /** Captured at admission so each outbox row continues its own edit's trace. */
+  traceparent?: string;
+  traceContext: Context;
+  /** Set for server-side writes that mutated the live Y.Doc directly; they
+   *  are persisted and then broadcast, never re-applied. */
+  alreadyAppliedOrigin?: { origin: unknown };
+  admittedAt: bigint;
+  resolve: (seq: number) => void;
+  reject: (err: unknown) => void;
+}
+
 /**
- * A Room owns exactly one Y.Doc (and its Awareness instance) for one pageId,
- * plus the set of currently-connected sockets. It knows nothing about HTTP,
- * ws upgrade, or process-wide routing — that isolation is what lets
- * RoomRegistry be swapped for a Redis-coordinated version in Phase 4 without
- * touching sync logic here.
+ * A Room owns one Y.Doc (and its Awareness) for one pageId plus the sockets
+ * connected to it on this gateway. It knows nothing about HTTP or upgrade
+ * routing.
  *
- * Persistence (Phase 2) is an optional collaborator, not a hard dependency:
- * a Room constructed with `pageStore: null` behaves exactly like Phase 1
- * (pure in-memory, nothing durable), which is what the existing convergence
- * tests still exercise. When a PageStore is supplied, client-originated sync
- * updates are appended to the ops log before they are applied to this Room or
- * sent to another client/replica. The sender's browser remains optimistic in
- * its own Y.Doc; a failed append closes that connection so y-websocket can
- * reconnect and replay its still-local state. This intentionally chooses
- * durable-before-fanout over the former lower-latency, fire-and-forget model.
+ * Durability: with a PageStore, client updates are appended to the ops log
+ * *before* they are applied to this Room or sent to any other client/replica.
+ * The sender stays optimistic in its own browser Y.Doc; a failed append closes
+ * that connection so y-websocket reconnects and replays its local state.
  *
- * Multi-instance fanout (Phase 4) is likewise an optional collaborator: a
- * Room constructed with `broadcaster: null` is single-instance-only, exactly
- * like Phases 1-3. When a RoomBroadcaster is supplied, locally-originated
- * updates/awareness changes are also published to Redis, and updates
- * arriving from Redis (tagged with REMOTE_ORIGIN) are applied to the local
- * doc/awareness so they reach this instance's own connected clients —
- * without being re-published (no echo) or re-persisted (the originating
- * instance already persisted it; every instance persisting the same op
- * would corrupt the ops-log sequence).
+ * Throughput: admission is a group commit. Updates that arrive while a
+ * transaction is in flight queue up and are committed together in the next
+ * one, so a busy page pays one transaction per batch instead of per keystroke,
+ * while an idle page still commits a lone update immediately (no added delay).
+ *
+ * Fanout: with a broadcaster, committed updates reach other gateways through
+ * the Postgres outbox → Redis; updates arriving from Redis are applied with
+ * REMOTE_ORIGIN and only fan out to this gateway's local sockets.
  */
 export class Room {
   readonly pageId: string;
@@ -94,6 +123,13 @@ export class Room {
   private readonly broadcaster: RoomBroadcaster | null;
   private readonly jobQueues: JobQueues | null;
   private readonly mentionsStore: MentionsStore | null;
+  private readonly fanoutOutbox: FanoutOutbox | null;
+  private readonly mutationAuthorizer: MutationAuthorizer | null;
+  private readonly authorship: RoomDependencies["authorship"];
+  /** Client ids already attributed from this room, so each is written once. */
+  private readonly attributedClientIds = new Set<number>();
+  private readonly maxBatchUpdates: number;
+  private readonly maxBatchBytes: number;
   private lastPersistedSeq: number;
   /** Highest contiguous sequence applied to this Room's Y.Doc. This can lag
    * `lastPersistedSeq` while a local gateway commit is ahead of a missing
@@ -104,97 +140,74 @@ export class Room {
    * out-of-order sequence numbers so Redis gap repair can distinguish an
    * already-applied local operation from a genuinely missing one. */
   private readonly outOfOrderAppliedSeqs = new Set<number>();
-  /** Last-seen text per comment id, keyed so a comment is only re-scanned for
-   *  @mentions when its text actually changes (not on every unrelated edit
-   *  to the page), while still catching a mention added via an edit to an
-   *  already-existing comment. A tracked id no longer present in the live
-   *  comments map means the comment was deleted (or cascade-deleted with
-   *  its block, see blocks.ts's deleteBlock), which triggers cleanup of any
-   *  mentions indexed for it. Resets when the Room does (e.g. after the
-   *  last connection leaves and a new one recreates it), which just means
-   *  comments existing before this process last restarted get re-scanned
-   *  once more — recordMentions' ON CONFLICT DO NOTHING makes that a
-   *  harmless no-op, not a duplicate. */
+  /** Last-seen text per comment id, so a comment is only re-scanned for
+   *  @mentions when its text changes. A tracked id missing from the live
+   *  comments map means the comment was deleted, which triggers cleanup of its
+   *  indexed mentions. Resets with the Room; recordMentions' ON CONFLICT DO
+   *  NOTHING makes the resulting re-scan harmless. */
   private readonly lastScannedCommentText = new Map<string, string>();
   /** Which awareness clientIDs a given socket has published — the only way to know which
    *  awareness states to clear when that socket disconnects, since awareness clientIDs
    *  are chosen client-side and never otherwise reported to us. */
   private readonly awarenessClientIdsByConnection = new Map<WebSocket, Set<number>>();
-  /** Role a connection was granted at join time (Phase 5). Absent entirely when auth is
-   *  disabled, in which case every connection behaves as before — unrestricted. */
+  /** Role granted at join time. Absent when auth is disabled. */
   private readonly rolesByConnection = new Map<WebSocket, Role>();
   private readonly userIdsByConnection = new Map<WebSocket, string>();
-  /** Serializes durable admission for one page. Besides keeping `persistedSeq`
-   * monotonic, this preserves the causal order of Yjs updates emitted by a
-   * single room before they are applied and fanned out. */
-  private durableUpdateQueue: Promise<void> = Promise.resolve();
+  /** Updates admitted but not yet committed, in arrival order. */
+  private pendingMutations: PendingMutation[] = [];
+  /** The single in-flight commit loop; at most one per Room keeps page order. */
+  private committing: Promise<void> | null = null;
   /** Ordered independently from local admission: a committed Redis envelope
    * can reveal a missing seq that must be replayed before a later envelope is
    * exposed to this instance's local clients. */
   private remoteUpdateQueue: Promise<void> = Promise.resolve();
   /** A source whose append failed may have sent more frames before it observed
-   * the 1011 close. Drop those queued frames rather than persisting an update
-   * that may causally depend on the failed one. */
+   * the close. Drop those queued frames rather than persisting an update that
+   * may causally depend on the failed one. */
   private readonly rejectedMutationConnections = new Set<WebSocket>();
   /** Optional metadata queued by the benchmark/client immediately before one
    * Sync update. Standard y-websocket clients leave this empty. */
   private readonly pendingMutationMetadata = new Map<WebSocket, ClientMutationMetadata>();
   private shuttingDown = false;
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
-  private readonly onAwarenessUpdate: (
-    changes: { added: number[]; updated: number[]; removed: number[] },
-    origin: unknown
-  ) => void;
+  private readonly onAwarenessUpdate: (changes: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => void;
 
-  constructor(
-    pageId: string,
-    initialDoc: Y.Doc,
-    initialSeq: number,
-    pageStore: PageStore | null,
-    broadcaster: RoomBroadcaster | null = null,
-    jobQueues: JobQueues | null = null,
-    mentionsStore: MentionsStore | null = null,
-    private readonly fanoutOutbox: FanoutOutbox | null = null,
-    private readonly mutationAuthorizer: MutationAuthorizer | null = null
-  ) {
+  constructor(pageId: string, initialDoc: Y.Doc, initialSeq: number, dependencies: RoomDependencies = {}) {
     this.pageId = pageId;
     this.doc = initialDoc;
     this.awareness = new Awareness(this.doc);
     this.log = childLogger({ pageId });
-    this.pageStore = pageStore;
-    this.broadcaster = broadcaster;
-    this.jobQueues = jobQueues;
-    this.mentionsStore = mentionsStore;
+    this.pageStore = dependencies.pageStore ?? null;
+    this.broadcaster = dependencies.broadcaster ?? null;
+    this.jobQueues = dependencies.jobQueues ?? null;
+    this.mentionsStore = dependencies.mentionsStore ?? null;
+    this.fanoutOutbox = dependencies.fanoutOutbox ?? null;
+    this.mutationAuthorizer = dependencies.mutationAuthorizer ?? null;
+    this.authorship = dependencies.authorship ?? null;
+    this.maxBatchUpdates = dependencies.maxBatchUpdates ?? DEFAULT_MAX_BATCH_UPDATES;
+    this.maxBatchBytes = dependencies.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES;
     this.lastPersistedSeq = initialSeq;
     this.lastContiguousSeq = initialSeq;
 
     this.onDocUpdate = (update: Uint8Array, origin: unknown) => {
       const isRemote = origin === REMOTE_ORIGIN;
-      const isDurableLocal = isDurableUpdateOrigin(origin);
-      // A span per doc update, not per Room: "room.doc_update" for a locally
-      // originated edit (parent of the persist/enqueue spans below, and — via
-      // the traceparent injected into the Redis frame — of the same edit's
-      // "room.apply_remote_update" span on every other instance), or the
-      // latter for one arriving via Phase 4's Redis fanout, which only ever
-      // fans out to local clients (never re-persisted/re-published — see
-      // REMOTE_ORIGIN's doc comment above).
+      // "room.doc_update" for a local edit, or "room.apply_remote_update" for
+      // one that arrived via Redis — the latter continues the originating
+      // gateway's trace through the traceparent carried in the Redis frame.
       const span = tracer.startSpan(isRemote ? "room.apply_remote_update" : "room.doc_update", {
         attributes: { "collab.page_id": this.pageId, "collab.update_bytes": update.length },
       });
       span.setAttribute("collab.update_fingerprint", updateFingerprint(update));
       context.with(trace.setSpan(context.active(), span), () => {
         if (isRemote) {
-          // Redis-delivered updates are already durable and must reach only
-          // this instance's local clients. Never publish them back onto the
-          // same channel or instances will echo the update indefinitely.
+          // Already durable; reach only this gateway's local clients.
           this.broadcastUpdate(update, undefined, false);
           span.end();
-          return; // came from another instance — it already persisted and published this
+          return;
         }
 
-        if (isDurableLocal) {
+        if (isDurableUpdateOrigin(origin)) {
           this.broadcastUpdate(update, origin.source);
-          this.afterDurableUpdate();
           span.end();
           return;
         }
@@ -205,35 +218,35 @@ export class Room {
           return;
         }
 
-        // Server-initiated mutations (currently version restore) still enter
-        // through Y.Doc directly. They cannot be pre-admitted like a wire
-        // update, but they must obey the same no-fanout-before-commit rule.
+        // A direct Y.Doc mutation (test helpers, legacy callers) cannot be
+        // pre-admitted like a wire update, but it must still obey the
+        // no-fanout-before-commit rule.
         this.enqueueAlreadyAppliedUpdate(update, origin).finally(() => span.end());
       });
     };
     this.doc.on("update", this.onDocUpdate);
 
     this.onAwarenessUpdate = ({ added, updated, removed }, origin) => {
-        const changedClients = added.concat(updated, removed);
-        const encodedUpdate = encodeAwarenessUpdate(this.awareness, changedClients);
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, MessageType.Awareness);
-        encoding.writeVarUint8Array(encoder, encodedUpdate);
-        const excludeWs = this.conns.has(origin as WebSocket) ? (origin as WebSocket) : undefined;
-        this.broadcast(encoding.toUint8Array(encoder), excludeWs);
+      const changedClients = added.concat(updated, removed);
+      const encodedUpdate = encodeAwarenessUpdate(this.awareness, changedClients);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, MessageType.Awareness);
+      encoding.writeVarUint8Array(encoder, encodedUpdate);
+      const excludeWs = this.conns.has(origin as WebSocket) ? (origin as WebSocket) : undefined;
+      this.broadcast(encoding.toUint8Array(encoder), excludeWs);
 
-        if (origin && this.conns.has(origin as WebSocket)) {
-          const ws = origin as WebSocket;
-          const ids = this.awarenessClientIdsByConnection.get(ws) ?? new Set<number>();
-          for (const id of added.concat(updated)) ids.add(id);
-          for (const id of removed) ids.delete(id);
-          this.awarenessClientIdsByConnection.set(ws, ids);
-        }
+      if (origin && this.conns.has(origin as WebSocket)) {
+        const ws = origin as WebSocket;
+        const ids = this.awarenessClientIdsByConnection.get(ws) ?? new Set<number>();
+        for (const id of added.concat(updated)) ids.add(id);
+        for (const id of removed) ids.delete(id);
+        this.awarenessClientIdsByConnection.set(ws, ids);
+      }
 
-        if (origin !== REMOTE_ORIGIN) {
-          this.broadcaster?.publishAwareness(this.pageId, encodedUpdate);
-        }
-      };
+      if (origin !== REMOTE_ORIGIN) {
+        this.broadcaster?.publishAwareness(this.pageId, encodedUpdate);
+      }
+    };
     this.awareness.on("update", this.onAwarenessUpdate);
   }
 
@@ -242,9 +255,8 @@ export class Room {
    *  re-publishing it or re-persisting it. */
   applyRemoteUpdate(update: Uint8Array, seq?: number): void {
     if (seq === undefined) {
-      // Legacy direct broadcaster/test frame. The outbox publisher emits a
-      // sequenced committed envelope; this branch preserves compatibility for
-      // intentionally in-memory single-process collaborators.
+      // Unsequenced frame from the direct (non-outbox) broadcaster used by
+      // in-memory deployments and tests.
       Y.applyUpdate(this.doc, update, REMOTE_ORIGIN);
       return;
     }
@@ -266,26 +278,35 @@ export class Room {
       this.markAppliedSeq(seq);
       return;
     }
+    if (seq === this.lastContiguousSeq + 1) {
+      // Common case: the next expected sequence. No gap, no read.
+      Y.applyUpdate(this.doc, update, REMOTE_ORIGIN);
+      this.markAppliedSeq(seq);
+      return;
+    }
 
     const missing = await this.pageStore.getOpsInRange(this.pageId, this.lastContiguousSeq, seq);
     if (missing.length === 0 || missing[missing.length - 1]!.seq !== seq) {
       throw new Error(`durable operation range does not reach received seq ${seq}`);
     }
+    this.applyDurableRange(missing);
+    this.log.warn(
+      { event: "remote_gap_repaired", fromSeq: missing[0]!.seq, toSeq: seq, operationCount: missing.length },
+      "replayed missing durable operations after Redis sequence gap"
+    );
+  }
+
+  /** Applies a contiguous range of durable operations, skipping ones this
+   * gateway already applied out of order (its own local commits). */
+  private applyDurableRange(operations: Array<{ seq: number; update: Uint8Array }>): void {
     const alreadyApplied = new Set(this.outOfOrderAppliedSeqs);
-    for (const operation of missing) {
-      // A higher local append may already be in the document while its
-      // lower cross-gateway predecessors are still in flight. Yjs is
-      // idempotent, but skipping that known local operation avoids needless
-      // observer/fanout work while still advancing contiguous sequence state.
+    for (const operation of operations) {
+      if (operation.seq <= this.lastContiguousSeq) continue;
       if (!alreadyApplied.has(operation.seq)) {
         Y.applyUpdate(this.doc, operation.update, REMOTE_ORIGIN);
       }
       this.markAppliedSeq(operation.seq);
     }
-    this.log.warn(
-      { event: "remote_gap_repaired", fromSeq: missing[0]!.seq, toSeq: seq, operationCount: missing.length },
-      "replayed missing durable operations after Redis sequence gap"
-    );
   }
 
   /** Reconcile a quiet active room after its Redis subscription reconnects.
@@ -302,13 +323,7 @@ export class Room {
         if (missing.length === 0 || missing[missing.length - 1]!.seq !== currentSeq) {
           throw new Error(`durable operation range does not reach current seq ${currentSeq}`);
         }
-        const alreadyApplied = new Set(this.outOfOrderAppliedSeqs);
-        for (const operation of missing) {
-          if (!alreadyApplied.has(operation.seq)) {
-            Y.applyUpdate(this.doc, operation.update, REMOTE_ORIGIN);
-          }
-          this.markAppliedSeq(operation.seq);
-        }
+        this.applyDurableRange(missing);
         this.log.warn(
           { event: "room_reconciled_after_redis_reconnect", fromSeq: missing[0]!.seq, toSeq: currentSeq, operationCount: missing.length },
           "replayed durable operations after Redis subscription reconnect"
@@ -326,10 +341,9 @@ export class Room {
   }
 
   /** Records an applied operation and advances the contiguous page cursor.
-   * This is important with two gateways: a local append can legitimately
-   * commit seq=10 while this room has not yet received seq=9 from Redis.
-   * `lastPersistedSeq` remains the highest durable sequence observed for the
-   * existing public diagnostic getter; `lastContiguousSeq` drives repair. */
+   * With two gateways a local append can legitimately commit seq=10 while
+   * this room has not yet received seq=9 from Redis. `lastPersistedSeq` is
+   * the highest durable sequence observed; `lastContiguousSeq` drives repair. */
   private markAppliedSeq(seq: number): void {
     if (seq > this.lastPersistedSeq) this.lastPersistedSeq = seq;
     if (seq <= this.lastContiguousSeq) return;
@@ -360,10 +374,7 @@ export class Room {
     if (this.awareness.getStates().size > 0) {
       const awarenessEncoder = encoding.createEncoder();
       encoding.writeVarUint(awarenessEncoder, MessageType.Awareness);
-      encoding.writeVarUint8Array(
-        awarenessEncoder,
-        encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys()))
-      );
+      encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(this.awareness, Array.from(this.awareness.getStates().keys())));
       ws.send(encoding.toUint8Array(awarenessEncoder));
     }
   }
@@ -405,17 +416,17 @@ export class Room {
   }
 
   /** Rejects new mutations and closes clients with the standard service-restart
-   * code while allowing an already admitted durable queue to finish. */
+   * code while allowing already admitted updates to finish committing. */
   beginShutdown(): void {
     this.shuttingDown = true;
     for (const connection of this.conns) connection.close(1012, "service restarting");
   }
 
-  /** Resolves after every update admitted before shutdown reached its durable
-   * outcome. A rejected append has already closed its source and is not
-   * silently promoted to a success by this drain. */
+  /** Resolves after every update admitted so far reached its durable outcome.
+   * A rejected append has already closed its source and is not silently
+   * promoted to a success by this drain. */
   async flushDurableUpdates(): Promise<void> {
-    await this.durableUpdateQueue;
+    while (this.committing) await this.committing;
   }
 
   handleMessage(ws: WebSocket, message: Uint8Array): void {
@@ -428,13 +439,8 @@ export class Room {
 
     switch (messageType) {
       case MessageType.Sync: {
-        // Root span for a real-time edit's whole path: this is what's active
-        // when Y.applyUpdate (inside readSyncMessage, below) synchronously
-        // fires the doc.on("update") handler above, so "room.doc_update" (and
-        // everything nested under it) shows up as a child of this span
-        // rather than an orphaned root — not every Sync message produces one
-        // (syncStep1 requests don't mutate the doc), which is fine; an
-        // childless "room.handle_sync_message" span is still an accurate trace.
+        // Root span for an edit's path: Y.applyUpdate (inside readSyncMessage)
+        // synchronously fires doc.on("update"), so "room.doc_update" nests here.
         const span = tracer.startSpan("room.handle_sync_message", {
           attributes: { "collab.page_id": this.pageId },
         });
@@ -481,19 +487,14 @@ export class Room {
 
     const role = this.rolesByConnection.get(ws);
     if (role === "viewer") {
-      // A viewer may still ask "what's your state" (syncStep1) and receive our
-      // reply, but syncStep2/update messages carry actual content changes — those
-      // get dropped before ever reaching Y.applyUpdate, not merely un-broadcast
-      // after the fact, since applying-then-discarding would still mutate this
-      // Room's doc (and get persisted/fanned-out to every other instance/client).
+      // A viewer may ask for state (syncStep1) but its syncStep2/update frames
+      // are dropped before Y.applyUpdate — applying-then-discarding would still
+      // mutate, persist and fan out the change.
       if (subType === syncProtocol.messageYjsSyncStep1) {
         syncProtocol.readSyncStep1(decoder, encoder, this.doc);
         if (encoding.length(encoder) > 1) ws.send(encoding.toUint8Array(encoder));
       } else {
-        this.log.warn(
-          { event: "viewer_write_rejected", pageId: this.pageId },
-          "dropped mutating sync message from a viewer connection"
-        );
+        this.log.warn({ event: "viewer_write_rejected", pageId: this.pageId }, "dropped mutating sync message from a viewer connection");
       }
       return;
     }
@@ -504,30 +505,30 @@ export class Room {
         if (encoding.length(encoder) > 1) ws.send(encoding.toUint8Array(encoder));
         return;
       case syncProtocol.messageYjsSyncStep2:
-      case syncProtocol.messageYjsUpdate:
+      case syncProtocol.messageYjsUpdate: {
         const mutationMetadata = this.pendingMutationMetadata.get(ws);
         this.pendingMutationMetadata.delete(ws);
         this.enqueueIncomingUpdate(decoding.readVarUint8Array(decoder), ws, mutationMetadata);
         return;
+      }
       default:
         throw new Error("Unknown Yjs sync message type");
     }
   }
 
-  /** Queues a client update behind its Postgres append. No peer, replica, or
-   * server-owned Y.Doc observes it until `recordUpdate` resolves. */
+  /** Queues a client update for the next group commit. No peer, replica, or
+   * server-owned Y.Doc observes it until that commit resolves. */
   private enqueueIncomingUpdate(update: Uint8Array, source: WebSocket, mutationMetadata?: ClientMutationMetadata): void {
     // A standard y-websocket client answers the gateway's initial SyncStep1
     // with SyncStep2 even when it has no local state to contribute. That
-    // frame decodes to an empty Yjs update; recording it would consume a
-    // page sequence and make durable-throughput evidence count a handshake
-    // no-op as an edit. Delete-only updates are retained because their
-    // delete set is meaningful even when they contain no structs.
+    // frame decodes to an empty Yjs update; recording it would consume a page
+    // sequence for a handshake no-op. Delete-only updates are kept because
+    // their delete set is meaningful even when they contain no structs.
     if (isEmptyYjsUpdate(update)) {
       this.log.debug({ event: "empty_sync_update_dropped" }, "dropped empty Yjs sync update");
       return;
     }
-    this.enqueueDurableApplication(update, source, mutationMetadata).catch((err) => {
+    this.admit({ update, source, metadata: mutationMetadata }).catch((err) => {
       if (!this.pageStore) {
         this.log.error({ event: "apply_in_memory_update_failed", err }, "failed to apply in-memory client update");
         source.close(1011, "update could not be applied");
@@ -539,100 +540,222 @@ export class Room {
         source.close(4403, "page mutation permission revoked");
         return;
       }
-      this.log.error(
-        { event: "persist_before_apply_failed", err },
-        "rejected update because it did not commit; closing source for replay"
-      );
+      this.log.error({ event: "persist_before_apply_failed", err }, "rejected update because it did not commit; closing source for replay");
       source.close(1011, "update was not persisted; reconnect to replay");
     });
   }
 
-  /** Enters a mutation through the one pre-commit admission queue. The public
-   * server-side entry point lets HTTP mutations use the exact same success
-   * boundary as WebSocket mutations. */
+  /** Server-side writes (version restore, AI edits) use the same admission
+   * queue and success boundary as WebSocket mutations. */
   async applyServerUpdate(update: Uint8Array): Promise<number> {
     if (isEmptyYjsUpdate(update)) return this.lastPersistedSeq;
-    return this.enqueueDurableApplication(update);
+    return this.admit({ update });
   }
 
-  private enqueueDurableApplication(update: Uint8Array, source?: WebSocket, mutationMetadata?: ClientMutationMetadata): Promise<number> {
-    const admittedAt = process.hrtime.bigint();
+  /** Keeps direct Y.Doc mutations from being published before their append
+   * commits. Product write paths use `applyServerUpdate` or client sync. */
+  private enqueueAlreadyAppliedUpdate(update: Uint8Array, origin: unknown): Promise<void> {
+    return this.admit({ update, alreadyAppliedOrigin: { origin } }).then(
+      () => undefined,
+      (err) => {
+        this.log.error(
+          { event: "persist_after_server_mutation_failed", err },
+          "server-side update was not published because it did not commit"
+        );
+      }
+    );
+  }
+
+  private admit(mutation: Pick<PendingMutation, "update" | "source" | "metadata" | "alreadyAppliedOrigin">): Promise<number> {
     collabUpdatesTotal.inc({ outcome: "accepted" });
     collabUpdatesPending.inc();
-    const operation = this.durableUpdateQueue.then(async () => {
-      try {
-        if (source && this.rejectedMutationConnections.has(source)) return this.lastPersistedSeq;
-        if (source && this.mutationAuthorizer) {
-          const userId = this.userIdsByConnection.get(source);
-          if (!userId) throw new MutationAuthorizationError();
-          const currentRole = await this.mutationAuthorizer(this.pageId, userId);
-          if (currentRole !== "owner" && currentRole !== "editor") {
-            throw new MutationAuthorizationError();
-          }
-          // Keep the in-memory role snapshot honest for diagnostics and for
-          // the next frame while the socket is still closing.
-          this.rolesByConnection.set(source, currentRole);
-        }
-        if (!this.pageStore) {
-          Y.applyUpdate(this.doc, update, source);
-          collabUpdatesTotal.inc({ outcome: "in_memory_applied" });
-          collabUpdateDurabilitySeconds.observe({ outcome: "in_memory" }, elapsedSeconds(admittedAt));
-          return this.lastPersistedSeq;
-        }
-        const seq = await this.pageStore.recordUpdate(this.pageId, update, () => this.stateAfterApplying(update), {
-          enqueueFanout: this.fanoutOutbox !== null,
-          clientMutationId: mutationMetadata?.mutationId,
-          clientCreatedAtMs: mutationMetadata?.createdAtMs,
-        });
-        this.markAppliedSeq(seq);
-        Y.applyUpdate(this.doc, update, { [DURABLE_UPDATE_ORIGIN]: true, source });
-        collabUpdatesTotal.inc({ outcome: "durable" });
-        collabUpdateDurabilitySeconds.observe({ outcome: "committed" }, elapsedSeconds(admittedAt));
-        return seq;
-      } catch (err) {
-        collabUpdatesTotal.inc({ outcome: "failed" });
-        collabUpdateDurabilitySeconds.observe({ outcome: "failed" }, elapsedSeconds(admittedAt));
-        throw err;
-      } finally {
-        collabUpdatesPending.dec();
-      }
-    });
-    // Keep the sequencing chain alive after a failed append while still
-    // returning the original rejection to the caller that owns this update.
-    this.durableUpdateQueue = operation.then(() => undefined, () => undefined);
-    return operation;
-  }
-
-  /** Keeps legacy direct Y.Doc mutations (currently test helpers) from being
-   * published before their append commits. Product write paths must use
-   * `applyServerUpdate` or client sync admission above. */
-  private enqueueAlreadyAppliedUpdate(update: Uint8Array, origin: unknown): Promise<void> {
-    this.durableUpdateQueue = this.durableUpdateQueue
-      .then(async () => {
-        try {
-          const seq = await this.pageStore!.recordUpdate(this.pageId, update, () => Y.encodeStateAsUpdate(this.doc), {
-            enqueueFanout: this.fanoutOutbox !== null,
-          });
-          this.markAppliedSeq(seq);
-          this.broadcastUpdate(update, this.conns.has(origin as WebSocket) ? (origin as WebSocket) : undefined);
-          this.afterDurableUpdate();
-        } catch (err) {
-          this.log.error(
-            { event: "persist_after_server_mutation_failed", err },
-            "server-side update was not published because it did not commit"
-          );
-        }
+    return new Promise<number>((resolve, reject) => {
+      this.pendingMutations.push({
+        ...mutation,
+        traceparent: currentTraceparent() ?? undefined,
+        traceContext: context.active(),
+        admittedAt: process.hrtime.bigint(),
+        resolve,
+        reject,
       });
-    return this.durableUpdateQueue;
+      this.startCommitLoop();
+    });
   }
 
-  /** Builds the exact state to snapshot for an incoming update without
-   * mutating the authoritative live Room before its operation is durable. */
-  private stateAfterApplying(update: Uint8Array): Uint8Array {
+  private startCommitLoop(): void {
+    if (this.committing) return;
+    this.committing = (async () => {
+      while (this.pendingMutations.length > 0) {
+        await this.commitBatch(this.takeBatch());
+      }
+    })().finally(() => {
+      this.committing = null;
+    });
+  }
+
+  private takeBatch(): PendingMutation[] {
+    let bytes = 0;
+    let count = 0;
+    for (const mutation of this.pendingMutations) {
+      if (count > 0 && (count >= this.maxBatchUpdates || bytes + mutation.update.byteLength > this.maxBatchBytes)) break;
+      bytes += mutation.update.byteLength;
+      count += 1;
+    }
+    return this.pendingMutations.splice(0, count);
+  }
+
+  /** Commits one batch and settles every mutation in it. Never throws: each
+   * mutation's promise carries its own outcome. */
+  private async commitBatch(batch: PendingMutation[]): Promise<void> {
+    const settle = (mutation: PendingMutation, outcome: "durable" | "failed" | "in_memory_applied" | "dropped", seqOrError: unknown) => {
+      collabUpdatesPending.dec();
+      if (outcome !== "dropped") {
+        collabUpdatesTotal.inc({ outcome });
+        const durabilityOutcome = outcome === "durable" ? "committed" : outcome === "failed" ? "failed" : "in_memory";
+        collabUpdateDurabilitySeconds.observe({ outcome: durabilityOutcome }, elapsedSeconds(mutation.admittedAt));
+      }
+      if (outcome === "failed") mutation.reject(seqOrError);
+      else mutation.resolve(seqOrError as number);
+    };
+
+    const accepted = await this.authorizeBatch(batch, settle);
+    if (accepted.length === 0) return;
+
+    if (!this.pageStore) {
+      for (const mutation of accepted) {
+        try {
+          Y.applyUpdate(this.doc, mutation.update, mutation.source);
+          settle(mutation, "in_memory_applied", this.lastPersistedSeq);
+        } catch (err) {
+          settle(mutation, "failed", err);
+        }
+      }
+      return;
+    }
+
+    // One span per transaction, parented to the first edit's trace and linked
+    // to every other edit that rode along in the same commit.
+    const links: Link[] = accepted.slice(1).flatMap((mutation) => {
+      const spanContext = trace.getSpanContext(mutation.traceContext);
+      return spanContext ? [{ context: spanContext }] : [];
+    });
+    const span = tracer.startSpan(
+      "room.commit_batch",
+      { attributes: { "collab.page_id": this.pageId, "collab.batch_size": accepted.length }, links },
+      accepted[0]!.traceContext
+    );
+    const pageStore = this.pageStore;
+    let seqs: number[];
+    try {
+      seqs = await context.with(trace.setSpan(accepted[0]!.traceContext, span), () =>
+        pageStore.recordUpdates(
+          this.pageId,
+          accepted.map((mutation) => ({
+            update: mutation.update,
+            traceparent: this.fanoutOutbox ? mutation.traceparent : undefined,
+            clientMutationId: mutation.metadata?.mutationId,
+            clientCreatedAtMs: mutation.metadata?.createdAtMs,
+          })),
+          () => this.stateAfterApplying(accepted.filter((mutation) => !mutation.alreadyAppliedOrigin).map((mutation) => mutation.update)),
+          { enqueueFanout: this.fanoutOutbox !== null }
+        )
+      );
+    } catch (err) {
+      span.recordException(err as Error);
+      span.end();
+      for (const mutation of accepted) settle(mutation, "failed", err);
+      return;
+    }
+    span.end();
+    collabCommitBatchSize.observe(accepted.length);
+
+    accepted.forEach((mutation, index) => {
+      const seq = seqs[index]!;
+      this.markAppliedSeq(seq);
+      if (mutation.alreadyAppliedOrigin) {
+        const { origin } = mutation.alreadyAppliedOrigin;
+        this.broadcastUpdate(mutation.update, this.conns.has(origin as WebSocket) ? (origin as WebSocket) : undefined);
+      } else {
+        Y.applyUpdate(this.doc, mutation.update, { [DURABLE_UPDATE_ORIGIN]: true, source: mutation.source });
+      }
+      settle(mutation, "durable", seq);
+    });
+    this.fanoutOutbox?.publishCommitted(
+      accepted.map((mutation, index) => ({
+        pageId: this.pageId,
+        seq: seqs[index]!,
+        update: mutation.update,
+        traceparent: mutation.traceparent ?? null,
+      }))
+    );
+    this.recordAuthorship(accepted);
+    this.afterDurableCommit();
+  }
+
+  /** Drops mutations from already-rejected sockets and re-checks every
+   * remaining socket's current role with one lookup. Returns the mutations
+   * allowed to commit; the rest are settled here. */
+  private async authorizeBatch(
+    batch: PendingMutation[],
+    settle: (mutation: PendingMutation, outcome: "failed" | "dropped", seqOrError: unknown) => void
+  ): Promise<PendingMutation[]> {
+    const live = batch.filter((mutation) => {
+      if (mutation.source && this.rejectedMutationConnections.has(mutation.source)) {
+        settle(mutation, "dropped", this.lastPersistedSeq);
+        return false;
+      }
+      return true;
+    });
+    if (!this.mutationAuthorizer || !live.some((mutation) => mutation.source)) return live;
+
+    const userIds = new Set<string>();
+    for (const mutation of live) {
+      const userId = mutation.source ? this.userIdsByConnection.get(mutation.source) : undefined;
+      if (userId) userIds.add(userId);
+    }
+    let roles: Map<string, Role>;
+    try {
+      roles = await this.mutationAuthorizer(this.pageId, [...userIds]);
+    } catch (err) {
+      // Can't prove authorization: fail only the client mutations; server
+      // mutations were authorized by their HTTP route.
+      return live.filter((mutation) => {
+        if (!mutation.source) return true;
+        settle(mutation, "failed", err);
+        return false;
+      });
+    }
+
+    const revoked = new Set<WebSocket>();
+    return live.filter((mutation) => {
+      const source = mutation.source;
+      if (!source) return true;
+      if (revoked.has(source)) {
+        // Later frames from a socket rejected earlier in this same batch.
+        settle(mutation, "dropped", this.lastPersistedSeq);
+        return false;
+      }
+      const userId = this.userIdsByConnection.get(source);
+      const role = userId ? roles.get(userId) : undefined;
+      if (role !== "owner" && role !== "editor") {
+        revoked.add(source);
+        this.rejectedMutationConnections.add(source);
+        settle(mutation, "failed", new MutationAuthorizationError());
+        return false;
+      }
+      // Keep the in-memory role snapshot honest for diagnostics.
+      this.rolesByConnection.set(source, role);
+      return true;
+    });
+  }
+
+  /** Builds the exact state to snapshot after a batch without mutating the
+   * authoritative live Room before its operations are durable. */
+  private stateAfterApplying(updates: Uint8Array[]): Uint8Array {
     const snapshotDoc = new Y.Doc();
     try {
       Y.applyUpdate(snapshotDoc, Y.encodeStateAsUpdate(this.doc));
-      Y.applyUpdate(snapshotDoc, update);
+      for (const update of updates) Y.applyUpdate(snapshotDoc, update);
       return Y.encodeStateAsUpdate(snapshotDoc);
     } finally {
       snapshotDoc.destroy();
@@ -644,21 +767,45 @@ export class Room {
     encoding.writeVarUint(encoder, MessageType.Sync);
     syncProtocol.writeUpdate(encoder, update);
     this.broadcast(encoding.toUint8Array(encoder), exclude);
-    if (!publish) return;
-    if (this.fanoutOutbox) this.fanoutOutbox.wake();
-    else this.broadcaster?.publishUpdate(this.pageId, update);
+    // With an outbox, cross-gateway publish happens once per commit (see
+    // commitBatch); only the direct broadcaster publishes per update.
+    if (publish && !this.fanoutOutbox) this.broadcaster?.publishUpdate(this.pageId, update);
   }
 
-  /** Runs only after an append has committed, regardless of whether the
-   * update arrived from a client or server-side restore path. */
-  private afterDurableUpdate(): void {
-    // A busy page's rapid edits coalesce into one pending job per queue (see
-    // JobQueues' jobId-based dedup), so this does not create one job per key.
+  /** Attributes new Yjs client ids in a committed batch to the users whose
+   *  sockets sent them. Best effort: authorship is informational and must
+   *  never fail or delay an edit. */
+  private recordAuthorship(committed: PendingMutation[]): void {
+    if (!this.authorship) return;
+    const entries: Array<{ clientId: number; userId: string }> = [];
+    for (const mutation of committed) {
+      const userId = mutation.source ? this.userIdsByConnection.get(mutation.source) : undefined;
+      if (!userId) continue;
+      for (const clientId of clientIdsInUpdate(mutation.update)) {
+        if (this.attributedClientIds.has(clientId)) continue;
+        this.attributedClientIds.add(clientId);
+        entries.push({ clientId, userId });
+      }
+    }
+    if (entries.length === 0) return;
+    this.authorship.record(this.pageId, entries).catch((err) => {
+      for (const entry of entries) this.attributedClientIds.delete(entry.clientId);
+      this.log.warn({ event: "record_authorship_failed", err }, "failed to record client authorship");
+    });
+  }
+
+  /** Side effects that need to happen once per commit, not once per update. */
+  private afterDurableCommit(): void {
+    // A busy page's edits coalesce into one pending job per queue (see
+    // JobQueues' jobId-based dedup).
     this.jobQueues?.enqueueSearchIndex(this.pageId).catch((err) => {
       this.log.error({ event: "enqueue_search_index_failed", err }, "failed to enqueue search index job");
     });
     this.jobQueues?.enqueuePreview(this.pageId).catch((err) => {
       this.log.error({ event: "enqueue_preview_failed", err }, "failed to enqueue preview job");
+    });
+    this.jobQueues?.enqueueWebhookEvent(this.pageId).catch((err) => {
+      this.log.error({ event: "enqueue_webhook_event_failed", err }, "failed to enqueue webhook event");
     });
     this.scanForNewMentions();
   }
@@ -671,12 +818,9 @@ export class Room {
     }
   }
 
-  /** Indexes @mentions in any comment whose text has changed since it was last
-   *  scanned (see `lastScannedCommentText`'s doc comment), and removes indexed
-   *  mentions for any comment that's disappeared since the last scan. Runs
-   *  after a successful persist, not on every raw doc event, so a page with no
-   *  comments (the common case) pays only a `Y.Map.forEach` over an empty map,
-   *  not a query. */
+  /** Indexes @mentions in any comment whose text changed since its last scan
+   *  and removes indexed mentions for comments that disappeared. Runs after a
+   *  commit, so a page without comments pays only an empty Y.Map iteration. */
   private scanForNewMentions(): void {
     if (!this.mentionsStore) return;
     const commentsMap = getCommentsMap(this.doc);

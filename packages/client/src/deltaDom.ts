@@ -1,4 +1,4 @@
-import type { DeltaOp } from "@collab/shared";
+import type { DeltaOp } from "@docsync/shared";
 
 /**
  * Imperative DOM twin of `renderDelta` (./renderDelta.tsx) — same op nesting

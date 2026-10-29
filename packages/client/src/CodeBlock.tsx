@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import type { WebsocketProvider } from "y-websocket";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { EditorState, Prec, type Extension } from "@codemirror/state";
@@ -8,7 +8,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language"
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { yCollab } from "y-codemirror.next";
-import type { CodeLanguage } from "@collab/shared";
+import type { CodeLanguage } from "@docsync/shared";
 import { useThemeValue } from "./theme.js";
 
 /** CodeMirror owns its own rendering surface (not CSS variables), so a
@@ -101,17 +101,21 @@ export function CodeBlock({
         lineNumbers(),
         history(),
         EditorState.readOnly.of(readOnly),
-        Prec.high(keymap.of([{
-          key: "Enter",
-          run: (view) => {
-            const atEnd = view.state.selection.main.empty && view.state.selection.main.head === view.state.doc.length;
-            if (!readOnly && atEnd && view.state.doc.toString().endsWith("\n")) {
-              onExitRef.current?.();
-              return true;
-            }
-            return false;
-          },
-        }])),
+        Prec.high(
+          keymap.of([
+            {
+              key: "Enter",
+              run: (view) => {
+                const atEnd = view.state.selection.main.empty && view.state.selection.main.head === view.state.doc.length;
+                if (!readOnly && atEnd && view.state.doc.toString().endsWith("\n")) {
+                  onExitRef.current?.();
+                  return true;
+                }
+                return false;
+              },
+            },
+          ])
+        ),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         LANGUAGE_EXTENSIONS[language],

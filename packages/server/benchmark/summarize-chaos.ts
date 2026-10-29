@@ -10,7 +10,14 @@ interface Workload {
   status: string;
   pageId: string;
   mutations?: { generated?: string[]; acceptedByHarness?: string[]; records?: Array<{ mutationId: string }> };
-  clients?: Array<{ clientId: string; mapKeys: string[]; mapHash: string; reconnects: number; socketErrors: number; duplicateWireFrames: number }>;
+  clients?: Array<{
+    clientId: string;
+    mapKeys: string[];
+    mapHash: string;
+    reconnects: number;
+    socketErrors: number;
+    duplicateWireFrames: number;
+  }>;
   convergence?: { converged: boolean };
 }
 
@@ -68,20 +75,25 @@ async function main(): Promise<void> {
     },
     convergence: {
       workloadClientConverged: workload.convergence?.converged ?? false,
-      durableDocumentHash: createHash("sha256").update(JSON.stringify([...doc.getMap<number>("benchmark-mutations").entries()].sort(([a], [b]) => a.localeCompare(b)))).digest("hex"),
+      durableDocumentHash: createHash("sha256")
+        .update(JSON.stringify([...doc.getMap<number>("benchmark-mutations").entries()].sort(([a], [b]) => a.localeCompare(b))))
+        .digest("hex"),
       clientHashCount: clientHashes.size,
       durableAcceptedSetConverged: lost.length === 0,
     },
     recovery: { measuredBy: "scripts/chaos/persistent-run.sh", readinessOnly: true },
-    claimBoundary: "acceptedByHarness is a generated workload intent. durable is membership in the reconstructed Postgres Yjs document; lost is accepted minus durable. Duplicate counts are exact fingerprint row duplicates or repeated raw client wire frames, not semantic duplicate business edits.",
+    claimBoundary:
+      "acceptedByHarness is a generated workload intent. durable is membership in the reconstructed Postgres Yjs document; lost is accepted minus durable. Duplicate counts are exact fingerprint row duplicates or repeated raw client wire frames, not semantic duplicate business edits.",
   };
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  process.stdout.write(`${JSON.stringify({ output: outputPath, accepted: accepted.length, durable: durable.length, lost: lost.length, duplicateRows })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ output: outputPath, accepted: accepted.length, durable: durable.length, lost: lost.length, duplicateRows })}\n`
+  );
   if (lost.length > 0) process.exitCode = 2;
 }
 
 void main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
   process.exitCode = 1;
 });

@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchPageRoles, grantPageRole, type PageRole } from "./api.js";
 import type { AuthUser } from "./auth.js";
+import { PublicLinkSection } from "./PublicLinkSection.js";
+import { WebhookSection } from "./WebhookSection.js";
 
 type InviteRole = "editor" | "viewer";
 
@@ -52,6 +54,8 @@ export function SharePanel({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+    // Resets the panel per page; loadRoles is recreated every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, onClose]);
 
   const currentRole = roles?.find((entry) => entry.userId === currentUser?.id)?.role;
@@ -98,7 +102,9 @@ export function SharePanel({
             <h3 id="share-panel-title">Collaborators</h3>
             <p>Documents stay private until a recipient accepts an invitation.</p>
           </div>
-          <button type="button" aria-label="Close collaborators" className="share-panel-close" onClick={onClose}>×</button>
+          <button type="button" aria-label="Close collaborators" className="share-panel-close" onClick={onClose}>
+            ×
+          </button>
         </header>
 
         {loadError ? (
@@ -113,7 +119,8 @@ export function SharePanel({
               {roles.map((entry) => (
                 <li key={entry.userId}>
                   <span className="collaborator-email">
-                    {entry.email}{entry.userId === currentUser?.id ? " (you)" : ""}
+                    {entry.email}
+                    {entry.userId === currentUser?.id ? " (you)" : ""}
                   </span>
                   <span className="collaborator-meta">
                     <span className="collaborator-role">{entry.role}</span>
@@ -158,11 +165,16 @@ export function SharePanel({
                 </button>
               </div>
               {inviteMessage && (
-                <p className={`share-invite-message ${inviteState === "error" ? "is-error" : ""}`} role={inviteState === "error" ? "alert" : "status"}>
+                <p
+                  className={`share-invite-message ${inviteState === "error" ? "is-error" : ""}`}
+                  role={inviteState === "error" ? "alert" : "status"}
+                >
                   {inviteMessage}
                 </p>
               )}
             </form>
+            {isOwner && <PublicLinkSection pageId={pageId} />}
+            {isOwner && <WebhookSection pageId={pageId} />}
           </>
         )}
       </section>

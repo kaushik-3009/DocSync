@@ -1,6 +1,6 @@
 import type * as Y from "yjs";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { splitBlock, mergeBlockIntoPrevious, indentBlock, outdentBlock, getBlockText } from "@collab/shared";
+import { splitBlock, mergeBlockIntoPrevious, indentBlock, outdentBlock, getBlockText } from "@docsync/shared";
 import { getCaretCharOffset, isCaretAtFirstVisualLine, isCaretAtLastVisualLine, getCaretClientRect, focusAtColumn } from "./caret.js";
 import { requestFocus, getBlockElement } from "./blockFocus.js";
 

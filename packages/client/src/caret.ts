@@ -172,5 +172,5 @@ export function focusAtColumn(container: HTMLElement, x: number, atEnd: boolean)
     selection.addRange(range);
     return;
   }
-  setCaretCharOffset(container, atEnd ? container.textContent?.length ?? 0 : 0);
+  setCaretCharOffset(container, atEnd ? (container.textContent?.length ?? 0) : 0);
 }

@@ -2,10 +2,16 @@ import { Queue } from "bullmq";
 import type Redis from "ioredis";
 import { tracer } from "../tracing/tracer.js";
 import { currentTraceparent } from "../tracing/propagation.js";
+import { markDirty } from "./coalescing.js";
+import type { DeliveryJob } from "../webhooks/delivery.js";
 
 export const SEARCH_INDEX_QUEUE = "search-index";
 export const PREVIEW_QUEUE = "preview";
 export const PDF_EXPORT_QUEUE = "pdf-export";
+export const WEBHOOK_EVENTS_QUEUE = "webhook-events";
+export const WEBHOOK_DELIVERY_QUEUE = "webhook-delivery";
+/** Edits within this window produce a single page.updated event. */
+export const WEBHOOK_DEBOUNCE_MS = Number(process.env.WEBHOOK_DEBOUNCE_MS ?? 3_000);
 
 // `traceparent` carries the enqueueing request's trace across the Redis/BullMQ
 // boundary — see tracing/propagation.ts. Optional because a job enqueued with
@@ -27,7 +33,7 @@ export interface PdfExportJobData {
 /**
  * Thin wrapper the rest of the server depends on instead of BullMQ directly —
  * same "seam, not a leaked implementation detail" pattern as RoomBroadcaster
- * (Phase 4) and PageStore (Phase 2). A Room only ever calls
+ * and PageStore. A Room only ever calls
  * `enqueueSearchIndex`/`enqueuePreview`; it has no idea BullMQ (or Redis)
  * is involved, so swapping job runners later doesn't touch Room.
  */
@@ -35,25 +41,23 @@ export class JobQueues {
   private readonly searchIndex: Queue<SearchIndexJobData>;
   private readonly preview: Queue<PreviewJobData>;
   private readonly pdfExport: Queue<PdfExportJobData>;
+  private readonly webhookEvents: Queue<{ pageId: string }>;
+  private readonly webhookDeliveries: Queue<DeliveryJob>;
 
-  constructor(connection: Redis) {
+  constructor(private readonly connection: Redis) {
     this.searchIndex = new Queue(SEARCH_INDEX_QUEUE, { connection });
     this.preview = new Queue(PREVIEW_QUEUE, { connection });
     this.pdfExport = new Queue(PDF_EXPORT_QUEUE, { connection });
+    this.webhookEvents = new Queue(WEBHOOK_EVENTS_QUEUE, { connection });
+    this.webhookDeliveries = new Queue(WEBHOOK_DELIVERY_QUEUE, { connection });
   }
 
-  /** Uses pageId as the BullMQ jobId: a page with edits arriving faster than the
-   *  job can process coalesces into a single pending re-index rather than queuing
-   *  one job per keystroke — BullMQ ignores add() calls that reuse an already
-   *  waiting/active job's id instead of erroring or duplicating. */
+  /** Coalesced per page (see coalescing.ts): bursts of edits collapse into
+   *  few runs, and an edit during a run is never lost. */
   async enqueueSearchIndex(pageId: string): Promise<void> {
     return tracer.startActiveSpan("job.enqueue.search_index", { attributes: { "collab.page_id": pageId } }, async (span) => {
       try {
-        await this.searchIndex.add(
-          "index",
-          { pageId, traceparent: currentTraceparent() ?? undefined },
-          { jobId: pageId, removeOnComplete: true, removeOnFail: 20 }
-        );
+        await markDirty(this.connection, this.searchIndex, pageId, { traceparent: currentTraceparent() ?? undefined });
       } finally {
         span.end();
       }
@@ -63,14 +67,27 @@ export class JobQueues {
   async enqueuePreview(pageId: string): Promise<void> {
     return tracer.startActiveSpan("job.enqueue.preview", { attributes: { "collab.page_id": pageId } }, async (span) => {
       try {
-        await this.preview.add(
-          "preview",
-          { pageId, traceparent: currentTraceparent() ?? undefined },
-          { jobId: pageId, removeOnComplete: true, removeOnFail: 20 }
-        );
+        await markDirty(this.connection, this.preview, pageId, { traceparent: currentTraceparent() ?? undefined });
       } finally {
         span.end();
       }
+    });
+  }
+
+  /** Debounced per page: a burst of edits becomes one page.updated event. */
+  async enqueueWebhookEvent(pageId: string): Promise<void> {
+    await markDirty(this.connection, this.webhookEvents, pageId, {}, WEBHOOK_DEBOUNCE_MS);
+  }
+
+  /** One delivery to one endpoint, retried with exponential backoff
+   *  (5 s, 10 s, 20 s, ... over six attempts). */
+  async enqueueWebhookDelivery(job: DeliveryJob): Promise<void> {
+    await this.webhookDeliveries.add(job.event, job, {
+      jobId: job.deliveryId,
+      attempts: 6,
+      backoff: { type: "exponential", delay: 5_000 },
+      removeOnComplete: true,
+      removeOnFail: 100,
     });
   }
 
@@ -112,6 +129,12 @@ export class JobQueues {
   }
 
   async close(): Promise<void> {
-    await Promise.all([this.searchIndex.close(), this.preview.close(), this.pdfExport.close()]);
+    await Promise.all([
+      this.searchIndex.close(),
+      this.preview.close(),
+      this.pdfExport.close(),
+      this.webhookEvents.close(),
+      this.webhookDeliveries.close(),
+    ]);
   }
 }

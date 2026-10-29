@@ -1,8 +1,10 @@
+import type { ExportStorage } from "../exports/storage.js";
+import type { SemanticIndex } from "../search/semantic.js";
 import { randomUUID } from "node:crypto";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 import type * as Y from "yjs";
-import { getTitleText, serializeDocument } from "@collab/shared";
+import { getTitleText, serializeDocument } from "@docsync/shared";
 import type { PageStore } from "../persistence/page-store.js";
 import { childLogger } from "../logger.js";
 
@@ -16,7 +18,7 @@ const PREVIEW_LENGTH = 200;
  * (jobs/workers.ts) is a thin adapter around these — which is also why
  * these are unit-tested directly against pg-mem rather than through a real
  * queue: BullMQ relies on Redis Lua scripting for its atomicity guarantees,
- * which ioredis-mock (used for Phase 4's fanout tests) doesn't reliably
+ * which ioredis-mock (used by the fast unit suite) doesn't reliably
  * support. Testing "does the job body do the right thing to Postgres"
  * doesn't require also proving "does BullMQ dequeue it" — that part is
  * covered by the manual verification steps in TESTING.md against a real
@@ -34,7 +36,12 @@ function extractPlainText(doc: Y.Doc): string {
     .trim();
 }
 
-export async function processSearchIndexJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<void> {
+export async function processSearchIndexJob(
+  pool: Pool,
+  pageStore: PageStore,
+  pageId: string,
+  semanticIndex: SemanticIndex | null = null
+): Promise<void> {
   const doc = await pageStore.replayAt(pageId, await pageStore.currentSeq(pageId));
   const content = extractPlainText(doc);
   await pool.query(
@@ -43,6 +50,10 @@ export async function processSearchIndexJob(pool: Pool, pageStore: PageStore, pa
     [pageId, content]
   );
   log.info({ event: "search_index_updated", pageId }, "search index refreshed");
+  // Embeddings are best effort: a provider outage must not fail keyword indexing.
+  await semanticIndex
+    ?.indexPage(pageId, doc)
+    .catch((err) => log.error({ event: "semantic_index_failed", pageId, err }, "semantic indexing failed"));
 }
 
 export async function processPreviewJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<void> {
@@ -65,7 +76,7 @@ export async function processPreviewJob(pool: Pool, pageStore: PageStore, pageId
 
 /** Renders a page's current blocks as a simple text PDF (pdfkit — pure JS, no
  *  headless-browser dependency) and stores the result, returning the export's id. */
-export async function processPdfExportJob(pool: Pool, pageStore: PageStore, pageId: string): Promise<string> {
+export async function processPdfExportJob(storage: ExportStorage, pageStore: PageStore, pageId: string): Promise<string> {
   const doc = await pageStore.replayAt(pageId, await pageStore.currentSeq(pageId));
   const blocks = serializeDocument(doc);
 
@@ -90,11 +101,7 @@ export async function processPdfExportJob(pool: Pool, pageStore: PageStore, page
   });
 
   const id = randomUUID();
-  await pool.query("INSERT INTO exports (id, page_id, format, data) VALUES ($1, $2, 'pdf', $3)", [
-    id,
-    pageId,
-    pdfBuffer.toString("base64"),
-  ]);
+  await storage.save(id, pageId, pdfBuffer);
   log.info({ event: "pdf_export_complete", pageId, exportId: id }, "PDF export generated");
   return id;
 }

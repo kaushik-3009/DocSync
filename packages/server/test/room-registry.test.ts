@@ -4,7 +4,7 @@ import { RoomRegistry } from "../src/room-registry.js";
 import { PageStore } from "../src/persistence/page-store.js";
 import { createTestPool } from "./helpers/test-db.js";
 import type { RoomBroadcaster } from "../src/redis/broadcaster.js";
-import { createBlock, serializeDocument } from "@collab/shared";
+import { createBlock, serializeDocument } from "@docsync/shared";
 
 describe("RoomRegistry", () => {
   it("creates a room lazily and reuses it for the same pageId", async () => {
@@ -17,10 +17,7 @@ describe("RoomRegistry", () => {
 
   it("shares one in-flight load for concurrent callers of a brand-new pageId", async () => {
     const registry = new RoomRegistry();
-    const [room1, room2] = await Promise.all([
-      registry.getOrCreateRoom("page-a"),
-      registry.getOrCreateRoom("page-a"),
-    ]);
+    const [room1, room2] = await Promise.all([registry.getOrCreateRoom("page-a"), registry.getOrCreateRoom("page-a")]);
     expect(room1).toBe(room2);
     expect(registry.activeRoomCount).toBe(1);
   });
@@ -65,7 +62,7 @@ describe("RoomRegistry", () => {
         reconnect = handler;
       },
     };
-    const registry = new RoomRegistry(store, broadcaster);
+    const registry = new RoomRegistry({ pageStore: store, broadcaster });
     const room = await registry.getOrCreateRoom("page-a");
     const source = new Y.Doc();
     createBlock(source, "b1", { type: "paragraph", text: "missed while Redis was down" });

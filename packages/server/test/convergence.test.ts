@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RoomRegistry } from "../src/room-registry.js";
 import { attachWsGateway } from "../src/ws-gateway.js";
 import type { WebSocketServer } from "ws";
-import { createBlock, getRootOrder, getBlockText, serializeDocument } from "@collab/shared";
+import { createBlock, getRootOrder, getBlockText, serializeDocument } from "@docsync/shared";
 
 /**
  * End-to-end test: real HTTP server + real ws-gateway + real y-websocket
@@ -36,11 +36,17 @@ afterEach(async () => {
   // so bound teardown while still giving normal shutdown a chance to finish.
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    wss.close(() => { clearTimeout(timer); resolve(); });
+    wss.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 500);
-    httpServer.close(() => { clearTimeout(timer); resolve(); });
+    httpServer.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 });
 

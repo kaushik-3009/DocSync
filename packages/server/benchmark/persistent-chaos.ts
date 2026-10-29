@@ -12,6 +12,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import WebSocket from "ws";
 import * as Y from "yjs";
+import { WS_PROTOCOL, wsAuthProtocol } from "../src/auth/jwt.js";
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as syncProtocol from "y-protocols/sync";
@@ -76,7 +77,9 @@ function settings(): Settings {
     httpBaseUrl,
     wsBaseUrl: (process.env.CHAOS_WS_URL ?? httpBaseUrl.replace(/^http/, "ws")).replace(/\/$/, ""),
     origin: process.env.CHAOS_ORIGIN ?? httpBaseUrl,
-    pageId: process.env.CHAOS_PAGE_ID ?? `chaos-${runId}`.replace(/[^A-Za-z0-9_-]/g, "-"),
+    // Created by createChaosDocument unless an existing page is supplied: the
+    // gateway only admits connections to pages that exist in `documents`.
+    pageId: process.env.CHAOS_PAGE_ID ?? "",
     runId,
     output: resolve(process.env.CHAOS_OUTPUT ?? `artifacts/chaos/${runId}/workload.json`),
     readyFile: resolve(process.env.CHAOS_READY_FILE ?? `artifacts/chaos/${runId}/workload-ready.json`),
@@ -94,6 +97,18 @@ async function registerToken(config: Settings): Promise<string> {
   const body = (await response.json()) as { token?: string; error?: string };
   if (response.status !== 201 || !body.token) throw new Error(`registration failed (${response.status}): ${body.error ?? "missing token"}`);
   return body.token;
+}
+
+async function createChaosDocument(config: Settings, token: string): Promise<string> {
+  const response = await fetch(`${config.httpBaseUrl}/documents`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: config.origin, authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title: `Chaos ${config.runId}` }),
+  });
+  const body = (await response.json()) as { document?: { id: string }; error?: string };
+  if (response.status !== 201 || !body.document)
+    throw new Error(`document creation failed (${response.status}): ${body.error ?? "missing document"}`);
+  return body.document.id;
 }
 
 function hashMap(doc: Y.Doc): string {
@@ -115,7 +130,13 @@ class PersistentClient {
   private errors = 0;
   private readonly mutationById: Map<string, MutationRecord>;
 
-  constructor(readonly id: string, private readonly url: string, private readonly origin: string, mutationById: Map<string, MutationRecord>) {
+  constructor(
+    readonly id: string,
+    private readonly url: string,
+    private readonly origin: string,
+    private readonly token: string,
+    mutationById: Map<string, MutationRecord>
+  ) {
     this.mutationById = mutationById;
     this.doc.on("update", (update, origin) => {
       if (origin === REMOTE_ORIGIN) return;
@@ -140,17 +161,24 @@ class PersistentClient {
 
   async connect(): Promise<void> {
     if (this.connected) return;
-    if (!this.pendingConnect) this.pendingConnect = this.connectOnce(false).finally(() => { this.pendingConnect = null; });
+    if (!this.pendingConnect)
+      this.pendingConnect = this.connectOnce(false).finally(() => {
+        this.pendingConnect = null;
+      });
     return this.pendingConnect;
   }
 
   private connectOnce(isReconnect: boolean): Promise<void> {
     return new Promise((resolvePromise, reject) => {
-      const socket = new WebSocket(this.url, { origin: this.origin });
+      const socket = new WebSocket(this.url, [WS_PROTOCOL, wsAuthProtocol(this.token)], { origin: this.origin });
       this.socket = socket;
       let settled = false;
       const timeout = setTimeout(() => {
-        if (!settled) { settled = true; reject(new Error(`${this.id} sync timeout`)); socket.close(); }
+        if (!settled) {
+          settled = true;
+          reject(new Error(`${this.id} sync timeout`));
+          socket.close();
+        }
       }, 10_000);
       socket.binaryType = "arraybuffer";
       socket.on("open", () => {
@@ -179,17 +207,27 @@ class PersistentClient {
           }
         } catch (error) {
           clearTimeout(timeout);
-          if (!settled) { settled = true; reject(error); }
+          if (!settled) {
+            settled = true;
+            reject(error);
+          }
         }
       });
       socket.on("error", () => {
         this.errors += 1;
-        if (!settled) { settled = true; clearTimeout(timeout); reject(new Error(`${this.id} socket error`)); }
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(`${this.id} socket error`));
+        }
       });
       socket.on("close", () => {
         clearTimeout(timeout);
         this.connected = false;
-        if (!settled) { settled = true; reject(new Error(`${this.id} closed before sync`)); }
+        if (!settled) {
+          settled = true;
+          reject(new Error(`${this.id} closed before sync`));
+        }
         if (!this.stopped) this.scheduleReconnect();
       });
     });
@@ -200,7 +238,11 @@ class PersistentClient {
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (this.stopped || this.connected) return;
-      try { await this.connectOnce(true); } catch { this.scheduleReconnect(); }
+      try {
+        await this.connectOnce(true);
+      } catch {
+        this.scheduleReconnect();
+      }
     }, 250);
   }
 
@@ -238,7 +280,14 @@ class PersistentClient {
   result(): ClientResult {
     const keys = [...this.doc.getMap<number>("benchmark-mutations").keys()].sort();
     const duplicateWireFrames = [...this.wireFrames.values()].filter((count) => count > 1).reduce((sum, count) => sum + count - 1, 0);
-    return { clientId: this.id, mapKeys: keys, mapHash: hashMap(this.doc), reconnects: this.reconnectCount, socketErrors: this.errors, duplicateWireFrames };
+    return {
+      clientId: this.id,
+      mapKeys: keys,
+      mapHash: hashMap(this.doc),
+      reconnects: this.reconnectCount,
+      socketErrors: this.errors,
+      duplicateWireFrames,
+    };
   }
 
   stop(): void {
@@ -266,11 +315,23 @@ async function main(): Promise<void> {
   let failure: string | undefined;
   try {
     const token = await registerToken(config);
-    const wsUrl = `${config.wsBaseUrl}/ws/${config.pageId}?token=${encodeURIComponent(token)}`;
-    clients.push(...Array.from({ length: config.clients }, (_, index) => new PersistentClient(`client-${index}`, wsUrl, config.origin, mutations)));
+    if (!config.pageId) config.pageId = await createChaosDocument(config, token);
+    const wsUrl = `${config.wsBaseUrl}/ws/${config.pageId}`;
+    clients.push(
+      ...Array.from(
+        { length: config.clients },
+        (_, index) => new PersistentClient(`client-${index}`, wsUrl, config.origin, token, mutations)
+      )
+    );
     await Promise.all(clients.map((client) => client.connect()));
     await new Promise((resolvePromise) => setTimeout(resolvePromise, config.settleMs));
-    await writeJson(config.readyFile, { schemaVersion: 1, runId: config.runId, pageId: config.pageId, readyAt: new Date().toISOString(), clients: clients.length });
+    await writeJson(config.readyFile, {
+      schemaVersion: 1,
+      runId: config.runId,
+      pageId: config.pageId,
+      readyAt: new Date().toISOString(),
+      clients: clients.length,
+    });
     if (config.preMutationPauseMs > 0) {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, config.preMutationPauseMs));
     }
@@ -299,13 +360,30 @@ async function main(): Promise<void> {
       mutations: { generated: mutationIds, acceptedByHarness: mutationIds, sentLive, records: [...mutations.values()] },
       clients: clientResults,
       convergence: { clientCount: clients.length, converged: mapHashes.size === 1, canonicalHashes: [...mapHashes] },
-      claimBoundary: "acceptedByHarness means a deterministic mutation intent was generated; durable/lost are calculated from the Postgres ops log by summarize-chaos.ts.",
+      claimBoundary:
+        "acceptedByHarness means a deterministic mutation intent was generated; durable/lost are calculated from the Postgres ops log by summarize-chaos.ts.",
     });
     if (mapHashes.size !== 1) throw new Error("client documents did not converge");
   } catch (error) {
     status = "failed";
     failure = error instanceof Error ? error.message : String(error);
-    await writeJson(config.output, { schemaVersion: 1, status, startedAt, finishedAt: new Date().toISOString(), settings: config, pageId: config.pageId, mutations: { generated: [...mutations.keys()], acceptedByHarness: [...mutations.keys()], sentLive: [...mutations.values()].filter((m) => m.sentLive).map((m) => m.mutationId), records: [...mutations.values()] }, clients: clients.map((client) => client.result()), failure, claimBoundary: "durable/lost remain unmeasured until summarize-chaos.ts reconstructs Postgres state." });
+    await writeJson(config.output, {
+      schemaVersion: 1,
+      status,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      settings: config,
+      pageId: config.pageId,
+      mutations: {
+        generated: [...mutations.keys()],
+        acceptedByHarness: [...mutations.keys()],
+        sentLive: [...mutations.values()].filter((m) => m.sentLive).map((m) => m.mutationId),
+        records: [...mutations.values()],
+      },
+      clients: clients.map((client) => client.result()),
+      failure,
+      claimBoundary: "durable/lost remain unmeasured until summarize-chaos.ts reconstructs Postgres state.",
+    });
     process.exitCode = 1;
   } finally {
     for (const client of clients) client.stop();

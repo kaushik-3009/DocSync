@@ -10,7 +10,7 @@ export interface AuditEntry {
   metadata?: Record<string, unknown>;
 }
 
-/** Fire-and-forget, same tradeoff as Room's persistence path in Phase 2 — an audit
+/** Fire-and-forget, an audit
  *  write failing shouldn't add latency to (or block) the auth/collab action itself,
  *  it should just be logged so it's visible that the audit trail has a gap. */
 export function recordAudit(pool: Pool, entry: AuditEntry): void {
@@ -43,10 +43,10 @@ export async function listAuditLog(pool: Pool, pageId: string, limit = 100): Pro
     event: string;
     metadata: Record<string, unknown>;
     created_at: string;
-  }>(
-    "SELECT id, user_id, page_id, event, metadata, created_at FROM audit_log WHERE page_id = $1 ORDER BY id DESC LIMIT $2",
-    [pageId, limit]
-  );
+  }>("SELECT id, user_id, page_id, event, metadata, created_at FROM audit_log WHERE page_id = $1 ORDER BY id DESC LIMIT $2", [
+    pageId,
+    limit,
+  ]);
   return result.rows.map((r) => ({
     id: r.id,
     userId: r.user_id,

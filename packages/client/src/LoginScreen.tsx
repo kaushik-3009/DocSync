@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { registerUser, loginUser } from "./api.js";
-import { storeToken } from "./auth.js";
+import { storeSession } from "./auth.js";
 
 /**
  * Two shapes, one component: `mandatory` (server has JWT_SECRET configured —
@@ -22,8 +22,8 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
     setError(null);
     setLoading(true);
     try {
-      const { token } = mode === "signup" ? await registerUser(email, password) : await loginUser(email, password);
-      storeToken(token);
+      const session = mode === "signup" ? await registerUser(email, password) : await loginUser(email, password);
+      storeSession(session);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -39,7 +39,7 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
       role="dialog"
       aria-label={mode === "signin" ? "Sign in" : "Create account"}
     >
-      <div className="auth-brand">Collab</div>
+      <div className="auth-brand">DocSync</div>
       <h1 className="auth-title">{mode === "signin" ? "Sign in" : "Create your account"}</h1>
       <p className="auth-subtitle">
         {mode === "signin"
@@ -50,14 +50,7 @@ export function LoginScreen({ mandatory, onClose }: { mandatory: boolean; onClos
       <form className="auth-form" onSubmit={submit}>
         <label className="auth-field">
           <span>Email</span>
-          <input
-            type="email"
-            required
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-          />
+          <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
         </label>
         <label className="auth-field">
           <span>Password</span>

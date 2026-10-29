@@ -1,26 +1,29 @@
-import type { SerializedBlock, SerializedBlockWithDelta } from "@collab/shared";
-import { getStoredToken } from "./auth.js";
+import type { SerializedBlock, SerializedBlockWithDelta } from "@docsync/shared";
+import { getFreshToken, getStoredToken, refreshSession, type Session } from "./auth.js";
+import { HTTP_BASE, WS_URL, wsProtocols } from "./config.js";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:1234/ws";
-
-/** The collab server's plain-HTTP routes (versions, restore, roles, ...) live
- *  on the same host/port as the WebSocket gateway — just derive one URL from
- *  the other rather than requiring a second env var kept in sync with it. */
 function httpBase(): string {
-  return WS_URL.replace(/^ws/, "http").replace(/\/ws\/?$/, "");
+  return HTTP_BASE;
 }
 
 class ApiError extends Error {}
 
+/** Authenticated fetch with one transparent retry after refreshing an
+ *  access token the server rejected (e.g. expired while the tab slept). */
+async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const send = (token: string | null) =>
+    fetch(`${httpBase()}${path}`, {
+      ...init,
+      headers: { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  const res = await send(await getFreshToken());
+  if (res.status !== 401 || !getStoredToken()) return res;
+  const refreshed = await refreshSession();
+  return refreshed ? send(refreshed) : res;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getStoredToken();
-  const res = await fetch(`${httpBase()}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const res = await authorizedFetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { error?: string });
     throw new ApiError(body.error ?? `${path} failed with HTTP ${res.status}`);
@@ -36,14 +39,11 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-/** Neither call attaches a stale Authorization header on purpose — you're
- *  acquiring a token, not using one — but `apiFetch` doing so anyway is
- *  harmless since these two routes don't check auth. */
-export function registerUser(email: string, password: string): Promise<{ token: string }> {
+export function registerUser(email: string, password: string): Promise<Session> {
   return postJson("/auth/register", { email, password });
 }
 
-export function loginUser(email: string, password: string): Promise<{ token: string }> {
+export function loginUser(email: string, password: string): Promise<Session> {
   return postJson("/auth/login", { email, password });
 }
 
@@ -82,22 +82,17 @@ export function fetchVersions(pageId: string): Promise<{ pageId: string; version
   }));
 }
 
-export function fetchVersionAt(
-  pageId: string,
-  seq: number
-): Promise<{ pageId: string; seq: number; blocks: SerializedBlockWithDelta[] }> {
+export function fetchVersionAt(pageId: string, seq: number): Promise<{ pageId: string; seq: number; blocks: SerializedBlockWithDelta[] }> {
   return apiFetch(`/pages/${pageId}/versions/${seq}`);
 }
 
-export function restoreVersion(
-  pageId: string,
-  seq: number
-): Promise<{ pageId: string; restoredSeq: number; blocks: SerializedBlock[] }> {
+export function restoreVersion(pageId: string, seq: number): Promise<{ pageId: string; restoredSeq: number; blocks: SerializedBlock[] }> {
   return apiFetch(`/pages/${pageId}/versions/${seq}/restore`, { method: "POST" });
 }
 
 export interface SearchHit {
   pageId: string;
+  title: string | null;
   snippet: string;
 }
 
@@ -156,7 +151,7 @@ export function subscribeToNotificationChanges(onChange: () => void): () => void
     const token = getStoredToken();
     if (stopped || !token) return;
     const endpoint = WS_URL.replace(/\/ws\/?$/, "/notifications");
-    socket = new WebSocket(`${endpoint}?token=${encodeURIComponent(token)}`);
+    socket = new WebSocket(endpoint, wsProtocols(token));
     socket.onmessage = () => onChange();
     socket.onclose = (event) => {
       socket = null;
@@ -179,10 +174,6 @@ export function respondToInvitationToken(token: string, action: "accept" | "decl
   return postJson("/invitations/respond", { token, action });
 }
 
-export function askDocumentAssistant(pageId: string, prompt: string): Promise<{ answer: string; model: string }> {
-  return postJson(`/pages/${pageId}/assistant`, { prompt });
-}
-
 export type AgentOperation =
   | { op: "replace_text"; blockId: string; text: string }
   | { op: "set_block_type"; blockId: string; type: "paragraph" | "heading" | "todo" | "bullet" | "canvas" | "code" }
@@ -195,15 +186,6 @@ export type AgentOperation =
 export interface AgentPlan {
   summary: string;
   operations: AgentOperation[];
-}
-
-export type AssistantChatResponse =
-  | { kind: "answer"; answer: string; model: string }
-  | { kind: "edit_plan"; plan: AgentPlan; baseSeq: number; model: string }
-  | { answer: string; model: string };
-
-export function chatDocumentAssistant(pageId: string, prompt: string): Promise<AssistantChatResponse> {
-  return postJson(`/pages/${pageId}/assistant`, { prompt });
 }
 
 export function planDocumentEdit(pageId: string, prompt: string): Promise<{ plan: AgentPlan; baseSeq: number; model: string }> {
@@ -225,7 +207,13 @@ export function grantPageRole(
   pageId: string,
   email: string,
   role: Exclude<PageRole["role"], "owner">
-): Promise<{ pageId: string; granteeEmail: string; role: "editor" | "viewer"; invitationId: string; emailStatus: "sent" | "skipped" | "failed" }> {
+): Promise<{
+  pageId: string;
+  granteeEmail: string;
+  role: "editor" | "viewer";
+  invitationId: string;
+  emailStatus: "sent" | "skipped" | "failed";
+}> {
   return postJson(`/pages/${pageId}/roles`, { email, role });
 }
 
@@ -240,11 +228,208 @@ export function getExportStatus(pageId: string, jobId: string): Promise<{ state:
 /** Not JSON like every other route here — the download is a raw PDF body, so
  *  this bypasses `apiFetch` to read a Blob instead, but still attaches the
  *  same auth header. */
-export async function fetchExportBlob(exportId: string): Promise<Blob> {
-  const token = getStoredToken();
-  const res = await fetch(`${httpBase()}/exports/${exportId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+/** Resolves an export to something an `<a download>` can open: a short-lived
+ *  presigned object-storage URL when the server stores exports in S3, or an
+ *  object URL over the bytes otherwise (call `release` when done). */
+export async function fetchExportDownload(exportId: string): Promise<{ url: string; release: () => void }> {
+  const res = await authorizedFetch(`/exports/${exportId}`, { headers: { Accept: "application/json, application/pdf" } });
   if (!res.ok) throw new ApiError(`export download failed with HTTP ${res.status}`);
-  return res.blob();
+  if (res.headers.get("content-type")?.includes("application/json")) {
+    const { downloadUrl } = (await res.json()) as { downloadUrl: string };
+    return { url: downloadUrl, release: () => undefined };
+  }
+  const url = URL.createObjectURL(await res.blob());
+  return { url, release: () => URL.revokeObjectURL(url) };
+}
+
+export interface AuthorshipSpan {
+  text: string;
+  userId: string | null;
+}
+
+export interface PageAuthorship {
+  title: AuthorshipSpan[];
+  blocks: Array<{ blockId: string; spans: AuthorshipSpan[] }>;
+  authors: Array<{ userId: string | null; email: string | null; characters: number }>;
+}
+
+export function fetchAuthorship(pageId: string): Promise<PageAuthorship> {
+  return apiFetch(`/pages/${pageId}/authorship`);
+}
+
+export interface SemanticHit {
+  pageId: string;
+  title: string;
+  content: string;
+  score: number;
+}
+
+export function semanticSearch(query: string): Promise<{ query: string; hits: SemanticHit[] }> {
+  return apiFetch(`/search/semantic?q=${encodeURIComponent(query)}`);
+}
+
+export interface Citation {
+  n: number;
+  pageId: string;
+  title: string;
+  snippet: string;
+}
+
+/** POSTs `body` and dispatches each server-sent event to `onEvent` until the
+ *  server sends `done`. An `error` event rejects with the server's message. */
+async function postEventStream(
+  path: string,
+  body: unknown,
+  onEvent: (event: string, payload: unknown) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await authorizedFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const error = await res.json().catch(() => ({}) as { error?: string });
+    throw new ApiError(error.error ?? `request failed with HTTP ${res.status}`);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const event = /^event: (.*)$/m.exec(frame)?.[1];
+      const data = /^data: (.*)$/m.exec(frame)?.[1];
+      if (!event || data === undefined) continue;
+      const payload = JSON.parse(data);
+      if (event === "error") throw new ApiError((payload as { error: string }).error);
+      if (event === "done") return;
+      onEvent(event, payload);
+    }
+  }
+}
+
+/** Streams a cited answer from POST /workspace/ask/stream (citations, then
+ *  deltas). */
+export function askWorkspace(
+  question: string,
+  handlers: { onCitations: (citations: Citation[]) => void; onDelta: (text: string) => void },
+  signal?: AbortSignal
+): Promise<void> {
+  return postEventStream(
+    "/workspace/ask/stream",
+    { question },
+    (event, payload) => {
+      if (event === "citations") handlers.onCitations(payload as Citation[]);
+      else if (event === "delta") handlers.onDelta((payload as { text: string }).text);
+    },
+    signal
+  );
+}
+
+/** Streams the document assistant: answer text as deltas, or one reviewable
+ *  edit plan. */
+export function streamDocumentAssistant(
+  pageId: string,
+  prompt: string,
+  handlers: { onDelta: (text: string) => void; onPlan: (draft: { plan: AgentPlan; baseSeq: number }) => void },
+  signal?: AbortSignal
+): Promise<void> {
+  return postEventStream(
+    `/pages/${pageId}/assistant/stream`,
+    { prompt },
+    (event, payload) => {
+      if (event === "delta") handlers.onDelta((payload as { text: string }).text);
+      else if (event === "plan") handlers.onPlan(payload as { plan: AgentPlan; baseSeq: number });
+    },
+    signal
+  );
+}
+
+export interface ShareLinkSummary {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export function listShareLinks(pageId: string): Promise<{ links: ShareLinkSummary[] }> {
+  return apiFetch(`/pages/${pageId}/share-links`);
+}
+
+export function createShareLink(pageId: string): Promise<{ link: ShareLinkSummary; token: string }> {
+  return postJson(`/pages/${pageId}/share-links`, {});
+}
+
+export function revokeShareLink(pageId: string, linkId: string): Promise<{ revoked: boolean }> {
+  return apiFetch(`/pages/${pageId}/share-links/${linkId}`, { method: "DELETE" });
+}
+
+/** Unauthenticated: anyone holding the link may read the snapshot. */
+export async function fetchPublicPage(token: string): Promise<{ title: string; blocks: SerializedBlockWithDelta[] }> {
+  const res = await fetch(`${httpBase()}/public/${encodeURIComponent(token)}`);
+  if (!res.ok) throw new ApiError(res.status === 404 ? "This link is invalid or has been revoked." : `HTTP ${res.status}`);
+  return res.json();
+}
+
+export function publicPageUrl(token: string): string {
+  const url = new URL(window.location.href);
+  url.search = `?share=${encodeURIComponent(token)}`;
+  url.hash = "";
+  return url.toString();
+}
+
+export interface WebhookSummary {
+  id: string;
+  url: string;
+  createdAt: string;
+  lastDelivery: { event: string; status: string; responseStatus: number | null; at: string } | null;
+}
+
+export function listWebhooks(pageId: string): Promise<{ webhooks: WebhookSummary[] }> {
+  return apiFetch(`/pages/${pageId}/webhooks`);
+}
+
+export function createWebhook(pageId: string, url: string): Promise<{ webhook: WebhookSummary; secret: string }> {
+  return postJson(`/pages/${pageId}/webhooks`, { url });
+}
+
+export function deleteWebhook(pageId: string, webhookId: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/pages/${pageId}/webhooks/${webhookId}`, { method: "DELETE" });
+}
+
+export function pingWebhook(pageId: string, webhookId: string): Promise<{ deliveryId: string }> {
+  return postJson(`/pages/${pageId}/webhooks/${webhookId}/ping`, {});
+}
+
+export const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** Approves an image upload, sends the bytes where the server says (S3 or the
+ *  gateway itself), and returns the upload id to store on the block. */
+export async function uploadImage(pageId: string, file: File): Promise<string> {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) throw new ApiError("Use a PNG, JPEG, GIF or WebP image.");
+  if (file.size > MAX_IMAGE_BYTES) throw new ApiError("Images can be at most 5 MB.");
+  const { uploadId, target } = await postJson<{
+    uploadId: string;
+    target: { method: string; url: string; headers: Record<string, string> };
+  }>(`/pages/${pageId}/uploads`, { contentType: file.type, size: file.size });
+  // Our bearer token goes only to our own API, never to S3.
+  const toOwnApi = new URL(target.url).origin === new URL(httpBase()).origin;
+  const token = toOwnApi ? await getFreshToken() : null;
+  const res = await fetch(target.url, {
+    method: target.method,
+    headers: { ...target.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: file,
+  });
+  if (!res.ok) throw new ApiError(`image upload failed with HTTP ${res.status}`);
+  return uploadId;
+}
+
+export function fetchImageUrl(pageId: string, uploadId: string): Promise<{ url: string; expiresInSeconds: number }> {
+  return apiFetch(`/pages/${pageId}/uploads/${uploadId}/url`);
 }

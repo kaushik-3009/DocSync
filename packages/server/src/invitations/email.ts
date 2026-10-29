@@ -8,7 +8,11 @@ export interface EmailConfig {
   appBaseUrl: string;
 }
 
-export async function deliverInvitationEmail(pool: Pool, config: EmailConfig, invitation: InvitationResult): Promise<"sent" | "skipped" | "failed"> {
+export async function deliverInvitationEmail(
+  pool: Pool,
+  config: EmailConfig,
+  invitation: InvitationResult
+): Promise<"sent" | "skipped" | "failed"> {
   if (!config.apiKey || !config.from) {
     await record(pool, invitation.invitationId, "skipped", undefined, "email_not_configured");
     return "skipped";
@@ -39,7 +43,13 @@ export async function deliverInvitationEmail(pool: Pool, config: EmailConfig, in
   }
 }
 
-async function record(pool: Pool, invitationId: string, status: "sent" | "skipped" | "failed", providerMessageId?: string, errorCode?: string) {
+async function record(
+  pool: Pool,
+  invitationId: string,
+  status: "sent" | "skipped" | "failed",
+  providerMessageId?: string,
+  errorCode?: string
+) {
   await pool.query(
     `INSERT INTO email_deliveries (id, invitation_id, provider, provider_message_id, status, error_code)
      VALUES ($1, $2, 'resend', $3, $4, $5)`,

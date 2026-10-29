@@ -9,7 +9,7 @@ import { Registry, collectDefaultMetrics, Counter, Gauge, Histogram } from "prom
  * chooses to disable, it's baseline observability, so it doesn't need the
  * same "optional collaborator" ceremony.
  *
- * This is exactly the seam Phase 1's ARCHITECTURE.md called out in
+ * This is the seam called out in
  * advance: structured log events (`room_created`, `connection_added`, …)
  * already existed with consistent field names; these metrics mirror the
  * same events as counters/gauges instead of requiring new instrumentation.
@@ -70,6 +70,13 @@ export const collabUpdateDurabilitySeconds = new Histogram({
   name: "collab_update_durability_seconds",
   help: "Elapsed time from gateway admission to append outcome, by outcome",
   labelNames: ["outcome"], // committed | failed | in_memory
+  registers: [metricsRegistry],
+});
+
+export const collabCommitBatchSize = new Histogram({
+  name: "collab_commit_batch_size",
+  help: "Updates committed per group-commit transaction",
+  buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256],
   registers: [metricsRegistry],
 });
 

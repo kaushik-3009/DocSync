@@ -1,6 +1,6 @@
--- Phase 10: server-side mention indexing for the block-comments feature.
+-- Server-side mention indexing for the block-comments feature.
 --
--- Comments themselves live inside the Y.Doc (see @collab/shared's
+-- Comments themselves live inside the Y.Doc (see @docsync/shared's
 -- comments.ts) — they already get sync, persistence, and multi-instance
 -- fanout for free via the existing doc-update pipeline, so there's no
 -- separate "comments" table here. This table exists only to answer "which
@@ -10,8 +10,8 @@
 -- (page, comment, mentioned user).
 -- author_user_id is deliberately *not* a foreign key to users(id), unlike
 -- mentioned_user_id: a comment's author id comes straight from the client
--- (see @collab/shared's CommentFieldsInit) and, exactly like block edits,
--- is only ever a real registered user's id when auth (Phase 5) happens to
+-- (see @docsync/shared's CommentFieldsInit) and, exactly like block edits,
+-- is only ever a real registered user's id when auth happens to
 -- be enabled — with auth disabled it's whatever ephemeral local id the
 -- client generated (see client/src/localUser.ts), same as any other
 -- unauthenticated identity in this app. mentioned_user_id has no such

@@ -1,7 +1,6 @@
 variable "aws_region" {
-  description = "AWS region for the short-lived evidence environment."
-  type        = string
-  default     = "us-east-2"
+  type    = string
+  default = "us-east-2"
 }
 
 variable "project" {
@@ -11,131 +10,171 @@ variable "project" {
 }
 
 variable "environment" {
-  description = "Environment label. This scaffold is intentionally staging-only."
-  type        = string
-  default     = "staging"
+  type    = string
+  default = "staging"
 }
 
 variable "owner" {
   description = "Human owner recorded on every tagged resource."
   type        = string
-  default     = "kaushik"
 }
 
 variable "destroy_after" {
-  description = "UTC expiry timestamp recorded in tags. Replace before apply."
+  description = "UTC expiry recorded in tags for short-lived environments, or \"never\"."
   type        = string
-  default     = "SET-BEFORE-APPLY"
+  default     = "never"
 }
+
+# --- Application -------------------------------------------------------------
 
 variable "image_uri" {
-  description = "Immutable URI for the gateway and worker image (ECR or another reviewed registry)."
+  description = "Initial gateway/worker image (prefer a digest). Later deploys come from the CD workflow."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = trimspace(var.image_uri) != ""
+    error_message = "image_uri must reference a pushed image."
+  }
 }
 
-variable "allowed_origin" {
-  description = "Exact browser origin allowed by ALLOWED_ORIGINS. Set after choosing the client URL."
-  type        = string
-  default     = ""
+variable "allowed_origins" {
+  description = "Exact browser origins for CORS/WebSocket checks. The CloudFront client URL is added automatically."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for origin in var.allowed_origins : origin != "*" && can(regex("^https?://", origin))])
+    error_message = "allowed_origins must be explicit http(s) origins; wildcards are not permitted."
+  }
 }
 
-variable "enable_gemini" {
-  description = "Inject GEMINI_API_KEY from the runtime secret into gateway tasks. Populate the key before enabling."
-  type        = bool
-  default     = false
+variable "jwt_secret" {
+  type      = string
+  sensitive = true
+
+  validation {
+    condition     = length(var.jwt_secret) >= 32
+    error_message = "jwt_secret must contain at least 32 characters."
+  }
 }
 
-variable "enable_resend" {
-  description = "Inject Resend invitation-mail credentials from the runtime secret into gateway tasks. Populate both keys before enabling."
-  type        = bool
-  default     = false
-}
-
-variable "db_username" {
-  description = "RDS application username."
-  type        = string
-  default     = "collab"
-}
-
-variable "db_password" {
-  description = "RDS password. Supply through an uncommitted tfvars file or an environment variable; never commit it."
+variable "gemini_api_key" {
+  description = "Optional. Requires enable_nat_gateway so tasks can reach the Gemini API."
   type        = string
   sensitive   = true
   default     = ""
+}
+
+variable "resend_api_key" {
+  description = "Optional invitation email delivery. Requires enable_nat_gateway."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "email_from" {
+  type    = string
+  default = ""
+}
+
+# --- Network and edge ----------------------------------------------------------
+
+variable "enable_nat_gateway" {
+  type    = bool
+  default = false
+}
+
+variable "api_domain_name" {
+  description = "Public API hostname; with route53_zone_id, an ACM certificate and alias record are created."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  type    = string
+  default = ""
+}
+
+variable "certificate_arn" {
+  description = "Existing ACM certificate instead of issuing one."
+  type        = string
+  default     = ""
+}
+
+variable "enable_waf" {
+  type    = bool
+  default = true
+}
+
+variable "enable_client_cdn" {
+  type    = bool
+  default = true
+}
+
+# --- Data --------------------------------------------------------------------
+
+variable "db_password" {
+  type      = string
+  sensitive = true
 }
 
 variable "redis_auth_token" {
-  description = "ElastiCache Redis AUTH token. Supply through an uncommitted tfvars file or an environment variable; never commit it."
-  type        = string
-  sensitive   = true
-  default     = ""
+  type      = string
+  sensitive = true
 }
 
-variable "gateway_desired_count" {
-  description = "Keep at zero until Secrets Manager is populated. Set to 2 only for the approved run."
-  type        = number
-  default     = 0
-
-  validation {
-    condition     = contains([0, 2], var.gateway_desired_count)
-    error_message = "gateway_desired_count must be 0 (safe bootstrap) or 2 (approved benchmark run)."
-  }
+variable "db_multi_az" {
+  type    = bool
+  default = false
 }
 
-variable "worker_desired_count" {
-  description = "Keep at zero for bootstrap; set to one for the approved BullMQ worker evidence run."
-  type        = number
-  default     = 0
-
-  validation {
-    condition     = contains([0, 1], var.worker_desired_count)
-    error_message = "worker_desired_count must be 0 (safe bootstrap) or 1 (approved evidence run)."
-  }
+variable "db_deletion_protection" {
+  type    = bool
+  default = true
 }
 
-variable "worker_cpu" {
-  description = "Fargate CPU units for the single staging BullMQ worker."
-  type        = number
-  default     = 256
+variable "redis_replicas" {
+  type    = number
+  default = 0
 }
 
-variable "worker_memory" {
-  description = "Fargate memory in MiB for the single staging BullMQ worker."
+# --- Compute -----------------------------------------------------------------
+
+variable "gateway_min_count" {
+  description = "Zero parks the service (e.g. between benchmark sessions)."
   type        = number
-  default     = 512
+  default     = 2
 }
 
-variable "ws_connect_rate_limit_points" {
-  description = "Per-IP WebSocket connection budget for the staging task. Keep production default at 30; benchmark runs may use a separately documented higher value."
-  type        = number
-  default     = 30
-
-  validation {
-    condition     = var.ws_connect_rate_limit_points >= 1 && var.ws_connect_rate_limit_points <= 1000
-    error_message = "ws_connect_rate_limit_points must be between 1 and 1000."
-  }
+variable "gateway_max_count" {
+  type    = number
+  default = 6
 }
 
-variable "gateway_cpu" {
-  description = "Fargate CPU units per gateway."
-  type        = number
-  default     = 512
-}
-
-variable "gateway_memory" {
-  description = "Fargate memory in MiB per gateway."
-  type        = number
-  default     = 1024
+variable "worker_count" {
+  type    = number
+  default = 1
 }
 
 variable "log_retention_days" {
-  description = "Short CloudWatch retention for the evidence session."
-  type        = number
-  default     = 3
+  type    = number
+  default = 14
+}
 
-  validation {
-    condition     = var.log_retention_days >= 1 && var.log_retention_days <= 7
-    error_message = "Keep log retention between 1 and 7 days for this cost-limited staging run."
-  }
+# --- Operations ----------------------------------------------------------------
+
+variable "alarm_email" {
+  type    = string
+  default = ""
+}
+
+variable "github_repository" {
+  description = "owner/repo for the OIDC deploy role; empty skips creating it."
+  type        = string
+  default     = ""
+}
+
+variable "create_github_oidc_provider" {
+  type    = bool
+  default = true
 }

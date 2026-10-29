@@ -31,15 +31,9 @@ export async function listSnapshotSeqs(pool: Pool, pageId: string): Promise<numb
   // feature, however, and must include every durable edit; replayAt already
   // supports operation sequences between checkpoints. Keep the fallback for
   // maintenance/test callers that seed a snapshot without an ops-log row.
-  const operations = await pool.query<{ seq: string }>(
-    `SELECT seq FROM ops_log WHERE page_id = $1 ORDER BY seq DESC`,
-    [pageId]
-  );
+  const operations = await pool.query<{ seq: string }>(`SELECT seq FROM ops_log WHERE page_id = $1 ORDER BY seq DESC`, [pageId]);
   if (operations.rows.length > 0) return operations.rows.map((r) => Number(r.seq));
-  const snapshots = await pool.query<{ seq: string }>(
-    `SELECT seq FROM snapshots WHERE page_id = $1 ORDER BY seq DESC`,
-    [pageId]
-  );
+  const snapshots = await pool.query<{ seq: string }>(`SELECT seq FROM snapshots WHERE page_id = $1 ORDER BY seq DESC`, [pageId]);
   return snapshots.rows.map((r) => Number(r.seq));
 }
 

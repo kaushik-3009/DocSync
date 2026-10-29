@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { Tldraw, createTLStore, type TLRecord, type TLStore } from "tldraw";
 import "tldraw/tldraw.css";
 
@@ -89,7 +89,12 @@ export function CanvasBlock({ doc, blockId, readOnly = false }: { doc: Y.Doc; bl
         <span>Canvas</span>
       </div>
       <div className="canvas-block-body">
-        <Tldraw store={store} onMount={(editor) => { editor.updateInstanceState({ isReadonly: readOnly }); }} />
+        <Tldraw
+          store={store}
+          onMount={(editor) => {
+            editor.updateInstanceState({ isReadonly: readOnly });
+          }}
+        />
       </div>
     </div>
   );

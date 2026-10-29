@@ -6,4 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  build: {
+    // The tldraw canvas chunk (~1.7 MB) is lazy-loaded only when a page has a
+    // canvas block; the initial bundle stays small. Warn above that size.
+    chunkSizeWarningLimit: 1800,
+  },
 });

@@ -1,18 +1,20 @@
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 
-/**
- * Atomically allocates the next seq for a page and appends the update in
- * one transaction, so concurrent appends for the same page never collide
- * or gap. The `page_seq` upsert row-locks per page_id, giving us a
- * per-page monotonic counter without a global sequence bottleneck.
- */
 export interface AppendOpOptions {
   /** Write a retryable fanout record in the same transaction as this op. */
   enqueueFanout?: boolean;
   /** Trace context is durable metadata for the later asynchronous publisher. */
   traceparent?: string;
   /** Optional benchmark/client correlation metadata. */
+  clientMutationId?: string;
+  clientCreatedAtMs?: number;
+}
+
+/** One update in a group commit. */
+export interface AppendEntry {
+  update: Uint8Array;
+  traceparent?: string;
   clientMutationId?: string;
   clientCreatedAtMs?: number;
 }
@@ -28,42 +30,85 @@ export function updateFingerprint(update: Uint8Array): string {
   return createHash("sha256").update(update).digest("hex");
 }
 
-export async function appendOp(pool: Pool, pageId: string, update: Uint8Array, options: AppendOpOptions = {}): Promise<number> {
+/** Builds `($1, $2, ...), ($n, ...)` placeholders for a multi-row insert. */
+function valuesClause(rowCount: number, columnCount: number): string {
+  return Array.from(
+    { length: rowCount },
+    (_, row) => `(${Array.from({ length: columnCount }, (_, column) => `$${row * columnCount + column + 1}`).join(", ")})`
+  ).join(", ");
+}
+
+/**
+ * Group commit: allocates a contiguous block of per-page sequence numbers and
+ * appends every entry (plus its fanout outbox row) in one transaction. The
+ * `page_seq` upsert row-locks the page, so concurrent batches for the same page
+ * never collide or gap, and cost is five round trips per batch rather than per
+ * update. Returns the sequence assigned to each entry, in order.
+ */
+export async function appendOps(
+  pool: Pool,
+  pageId: string,
+  entries: AppendEntry[],
+  options: { enqueueFanout?: boolean } = {}
+): Promise<number[]> {
+  if (entries.length === 0) return [];
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const { rows } = await client.query<{ seq: string }>(
-      `INSERT INTO page_seq (page_id, seq) VALUES ($1, 1)
-       ON CONFLICT (page_id) DO UPDATE SET seq = page_seq.seq + 1
+      `INSERT INTO page_seq (page_id, seq) VALUES ($1, $2)
+       ON CONFLICT (page_id) DO UPDATE SET seq = page_seq.seq + $2
        RETURNING seq`,
-      [pageId]
+      [pageId, entries.length]
     );
-    const seq = Number(rows[0].seq);
-    const encodedUpdate = Buffer.from(update).toString("base64");
-    const fingerprint = updateFingerprint(update);
-    await client.query(`INSERT INTO ops_log (page_id, seq, update, update_fingerprint, client_mutation_id, client_created_at_ms) VALUES ($1, $2, $3, $4, $5, $6)`, [
+    const lastSeq = Number(rows[0].seq);
+    const seqs = entries.map((_, index) => lastSeq - entries.length + index + 1);
+    const encoded = entries.map((entry) => Buffer.from(entry.update).toString("base64"));
+    const opRows = entries.map((entry, index) => [
       pageId,
-      seq,
-      encodedUpdate,
-      fingerprint,
-      options.clientMutationId ?? null,
-      options.clientCreatedAtMs ?? null,
+      seqs[index],
+      encoded[index],
+      updateFingerprint(entry.update),
+      entry.clientMutationId ?? null,
+      entry.clientCreatedAtMs ?? null,
     ]);
+    await client.query(
+      `INSERT INTO ops_log (page_id, seq, update, update_fingerprint, client_mutation_id, client_created_at_ms) VALUES ${valuesClause(entries.length, 6)}`,
+      opRows.flat()
+    );
     if (options.enqueueFanout) {
       await client.query(
         `INSERT INTO fanout_outbox (page_id, seq, update, update_fingerprint, client_mutation_id, client_created_at_ms, traceparent)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [pageId, seq, encodedUpdate, fingerprint, options.clientMutationId ?? null, options.clientCreatedAtMs ?? null, options.traceparent ?? null]
+         VALUES ${valuesClause(entries.length, 7)}`,
+        opRows.flatMap((row, index) => [...row, entries[index]!.traceparent ?? null])
       );
     }
     await client.query("COMMIT");
-    return seq;
+    return seqs;
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
   }
+}
+
+/** Single-update convenience wrapper over `appendOps`. */
+export async function appendOp(pool: Pool, pageId: string, update: Uint8Array, options: AppendOpOptions = {}): Promise<number> {
+  const [seq] = await appendOps(
+    pool,
+    pageId,
+    [
+      {
+        update,
+        traceparent: options.traceparent,
+        clientMutationId: options.clientMutationId,
+        clientCreatedAtMs: options.clientCreatedAtMs,
+      },
+    ],
+    { enqueueFanout: options.enqueueFanout }
+  );
+  return seq!;
 }
 
 export interface OpRow {

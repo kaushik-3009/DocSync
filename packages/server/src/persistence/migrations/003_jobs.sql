@@ -1,10 +1,10 @@
--- Phase 6: background job pipeline outputs (search index, previews, PDF exports).
+-- Background job pipeline outputs (search index, previews, PDF exports).
 --
 -- Search uses plain ILIKE over a denormalized text column rather than
 -- Postgres full-text search (tsvector/GIN) — a deliberate scope-and-portability
 -- call, not an oversight: tsvector features aren't reliably supported by
 -- pg-mem (the in-memory engine the test suite runs against, same rationale
--- as Phase 2's base64-over-BYTEA choice), and ILIKE is plenty for this
+-- as the base64-over-BYTEA choice in 001_init.sql), and ILIKE is plenty for this
 -- project's scale. Swapping in tsvector later only touches this table and
 -- the query in jobs/search.ts, not the job pipeline that populates it.
 CREATE TABLE IF NOT EXISTS search_index (
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS page_previews (
 );
 
 -- Generated export artifacts (currently just PDF). Stored as base64 TEXT,
--- same rationale as ops_log/snapshots in Phase 2 — sidesteps BYTEA
+-- same rationale as ops_log/snapshots — sidesteps BYTEA
 -- portability quirks at a storage-cost tradeoff that's irrelevant for
 -- occasionally-generated exports.
 CREATE TABLE IF NOT EXISTS exports (

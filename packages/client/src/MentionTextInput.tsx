@@ -33,9 +33,7 @@ export function MentionTextInput({
   const caret = inputRef.current?.selectionStart ?? value.length;
   const match = open ? TRAILING_MENTION_PATTERN.exec(value.slice(0, caret)) : null;
   const query = match?.[1] ?? "";
-  const filtered = match
-    ? candidates.filter((email) => email.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
-    : [];
+  const filtered = match ? candidates.filter((email) => email.toLowerCase().includes(query.toLowerCase())).slice(0, 6) : [];
 
   function selectCandidate(email: string) {
     if (!match) return;

@@ -3,29 +3,27 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Pool } from "pg";
 import type { RateLimiterAbstract } from "rate-limiter-flexible";
 import { WebSocketServer, type WebSocket } from "ws";
-import { pageIdFromPath } from "@collab/shared";
-import { RoomRegistry } from "./room-registry.js";
+import { pageIdFromPath, type Role } from "@docsync/shared";
+import type { Room } from "./room.js";
+import { type RoomRegistry } from "./room-registry.js";
 import { childLogger } from "./logger.js";
 import { tryConsume } from "./rate-limit/limiters.js";
-import { verifyToken } from "./auth/jwt.js";
+import { tokenFromWsProtocols, verifyToken, WS_PROTOCOL } from "./auth/jwt.js";
 import { resolveRoleForConnection } from "./auth/rbac.js";
 import { recordAudit } from "./auth/audit.js";
 import { wsConnectionsActive, wsConnectionsTotal, roomsActive, wsMessagesTotal, rateLimitRejectionsTotal } from "./metrics/registry.js";
 
 const log = childLogger({ module: "ws-gateway" });
 
-/** When set, connections must present a valid JWT (as `?token=` on the ws URL) and are
- *  resolved to an RBAC role before joining a Room. Omitted entirely (undefined), every
- *  connection is unrestricted — exactly Phases 1-4 behavior, same "optional collaborator,
- *  zero cost until enabled" pattern as PageStore and RoomBroadcaster. */
+/** When set, connections must present a valid JWT (as a `docsync.auth.<jwt>`
+ *  WebSocket subprotocol, never in the URL) and are resolved to an RBAC role
+ *  before joining a Room. Omitted only under the local auth bypass. */
 export interface WsAuthConfig {
   jwtSecret: string;
   pool: Pool;
 }
 
-/** When set, connection attempts and per-connection message rates are capped. Omitted
- *  entirely, there's no limiting at the WebSocket layer — same optional-collaborator
- *  pattern as everything else added since Phase 2. */
+/** When set, connection attempts and per-connection message rates are capped. */
 export interface WsRateLimitConfig {
   connect: RateLimiterAbstract;
   message: RateLimiterAbstract;
@@ -53,10 +51,8 @@ function clientIp(request: IncomingMessage, trustProxy: boolean): string {
 /**
  * Attaches the WebSocket upgrade handler to an existing HTTP server and
  * routes each connection to a Room by the pageId in its URL path
- * (`/ws/<pageId>`). Keeping room resolution here (not in Room/RoomRegistry)
- * is what let auth (Phase 5) land as a check in this handler before a
- * connection is ever handed to a Room, without touching Room/RoomRegistry's
- * own logic — and is exactly why Phase 7's rate limiting lands the same way.
+ * (`/ws/<pageId>`). Origin checks, rate limits and auth all happen here,
+ * before a connection is handed to a Room.
  */
 export function attachWsGateway(
   httpServer: HttpServer,
@@ -66,11 +62,17 @@ export function attachWsGateway(
   trustProxy = false,
   security: WsSecurityConfig = {}
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: security.maxPayloadBytes ?? 1_048_576 });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: security.maxPayloadBytes ?? 1_048_576,
+    // Browsers fail the handshake unless the server selects one of the
+    // offered subprotocols; the auth "protocol" is never echoed back.
+    handleProtocols: (protocols) => (protocols.has(WS_PROTOCOL) ? WS_PROTOCOL : false),
+  });
 
   httpServer.on("upgrade", (request, socket, head) => {
     const rawUrl = request.url ?? "";
-    const { pathname, searchParams } = new URL(rawUrl, "http://internal");
+    const { pathname } = new URL(rawUrl, "http://internal");
     // A separate authenticated WebSocket gateway owns this path. Ignore it
     // here so two upgrade listeners can safely share the HTTP server.
     if (pathname === "/notifications") return;
@@ -91,41 +93,28 @@ export function attachWsGateway(
       return;
     }
 
-    // Token verification used to happen here, pre-handshake, rejecting with a
-    // raw `socket.write("HTTP/1.1 401...")` + `socket.destroy()`. That never
-    // completes the WebSocket handshake, so the browser's WebSocket object
-    // has no close code to distinguish it by — y-websocket's reconnect logic
-    // sees the same generic abnormal-closure it would see for a network blip
-    // or (see below) a rate-limit rejection, and retries forever on a fixed
-    // ~2.5s backoff cap. A tab left open with a stale/expired token then
-    // hammers this endpoint indefinitely — and since `rl:ws-connect` is
-    // keyed by IP, not by page, that alone can exhaust the connect budget
-    // for every other page/tab on the same machine. Moving the check into
-    // the post-handshake "connection" handler below lets it close with a
-    // real application code (4401, matching the existing 4403 for
-    // role-denied) that the client *can* act on to stop retrying — see
-    // useYDoc.ts's "connection-close" handler.
+    // Auth runs after the handshake completes so rejections carry real close
+    // codes (4401/4403/4429). A raw pre-handshake 401 looks like a network
+    // blip to y-websocket, which then retries forever and burns the IP-keyed
+    // connect budget for every other tab.
     const proceedAfterConnectLimit = () => {
       wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit("connection", ws, request, pageId, searchParams.get("token"));
+        wss.emit("connection", ws, request, pageId, tokenFromWsProtocols(request.headers["sec-websocket-protocol"]));
       });
     };
 
     if (rateLimit) {
       tryConsume(rateLimit.connect, clientIp(request, trustProxy)).then(({ allowed, infraError }) => {
         if (infraError) {
-          log.error({ event: "rate_limiter_store_error", scope: "ws_connect", err: infraError }, "rate limiter store unavailable — failing open");
+          log.error(
+            { event: "rate_limiter_store_error", scope: "ws_connect", err: infraError },
+            "rate limiter store unavailable — failing open"
+          );
         }
         if (!allowed) {
           rateLimitRejectionsTotal.inc({ scope: "ws_connect" });
           log.warn({ event: "rejected_upgrade", pageId, reason: "connect_rate_limited" }, "rejecting connection");
-          // Same reasoning as the auth-rejection comment above: a raw
-          // pre-handshake socket.write + destroy leaves the client with no
-          // real close code, so it retries immediately and indefinitely —
-          // which, being IP-keyed, just keeps consuming the same budget it
-          // tripped and can never recover. Complete the handshake, then
-          // close with a real code the client can act on (matching 4429
-          // used for the per-connection message rate limit below).
+          // Complete the handshake so the client gets a code it can act on.
           wss.handleUpgrade(request, socket, head, (ws) => {
             ws.close(4429, "connect rate limit exceeded");
           });
@@ -151,7 +140,7 @@ export function attachWsGateway(
     // addConnection has run — otherwise those frames would be silently
     // dropped (ws only emits "message" while a listener exists, it doesn't
     // queue).
-    let room: import("./room.js").Room | null = null;
+    let room: Room | null = null;
     let closed = false;
     const buffered: Uint8Array[] = [];
     let bufferedBytes = 0;
@@ -162,7 +151,10 @@ export function attachWsGateway(
       if (!room) {
         bufferedBytes += bytes.byteLength;
         if (bufferedBytes > maxBufferedBytes) {
-          log.warn({ event: "connection_buffer_exceeded", pageId, connectionId, bufferedBytes }, "closing connection with excessive pre-room data");
+          log.warn(
+            { event: "connection_buffer_exceeded", pageId, connectionId, bufferedBytes },
+            "closing connection with excessive pre-room data"
+          );
           ws.close(1009, "message buffer too large");
           return;
         }
@@ -186,7 +178,10 @@ export function attachWsGateway(
 
       tryConsume(rateLimit.message, messageLimitKey).then(({ allowed, infraError }) => {
         if (infraError) {
-          log.error({ event: "rate_limiter_store_error", scope: "ws_message", err: infraError }, "rate limiter store unavailable — failing open");
+          log.error(
+            { event: "rate_limiter_store_error", scope: "ws_message", err: infraError },
+            "rate limiter store unavailable — failing open"
+          );
         }
         if (!allowed) {
           rateLimitRejectionsTotal.inc({ scope: "ws_message" });
@@ -213,7 +208,7 @@ export function attachWsGateway(
     });
 
     (async () => {
-      let role: import("@collab/shared").Role | null = null;
+      let role: Role | null = null;
       let userId: string | null = null;
       if (auth) {
         const payload = token ? verifyToken(token, auth.jwtSecret) : null;

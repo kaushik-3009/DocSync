@@ -75,9 +75,7 @@ export function loadRuntimeConfig(environment: RuntimeEnvironment): RuntimeConfi
   const nodeEnv = environment.NODE_ENV;
 
   if (insecureLocalAuthBypass && nodeEnv !== "development") {
-    throw new RuntimeConfigError(
-      "ALLOW_INSECURE_LOCAL_AUTH_BYPASS=true is allowed only when NODE_ENV=development"
-    );
+    throw new RuntimeConfigError("ALLOW_INSECURE_LOCAL_AUTH_BYPASS=true is allowed only when NODE_ENV=development");
   }
 
   const value = insecureLocalAuthBypass ? optionalValue : requiredValue;

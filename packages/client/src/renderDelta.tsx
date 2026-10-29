@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { DeltaOp } from "@collab/shared";
+import type { DeltaOp } from "@docsync/shared";
 
 /**
  * Renders a Yjs/Quill-style delta as React nodes with bold/italic/link marks

@@ -24,9 +24,9 @@ import { Trend } from "k6/metrics";
  * dispatch "message"/"binaryMessage" callbacks to our script under this
  * concurrent per-vu-iterations scenario, with or without an additional
  * timer to pump its event loop. That's a k6/environment limitation
- * surfaced during this exercise, not a server-side gap — see
- * docs/LOAD_TESTING.md for how to re-attempt this measurement, e.g. with a
- * newer k6 build or Artillery's WebSocket engine instead.)
+ * surfaced during this exercise, not a server-side gap. Re-attempt the
+ * measurement with a newer k6 build or Artillery's WebSocket engine, or use
+ * packages/server/benchmark/collaboration.ts, which speaks the Yjs protocol.)
  *
  * Usage: BASE_URL=ws://localhost:1234 PAGE_MODE=hot k6 run loadtest/ws-load.js
  */
@@ -39,7 +39,7 @@ const connectLatency = new Trend("ws_connect_ms", true);
 
 // per-vu-iterations with iterations:1, not constant-vus: `ws.connect()` in the
 // classic k6/ws module returns immediately if the connection is rejected
-// (e.g. by Phase 7's ws-connect rate limiter), and constant-vus would then
+// (e.g. by the ws-connect rate limiter), and constant-vus would then
 // loop that VU back into a new attempt instantly, causing a reconnect storm
 // once the rate limit engages (observed firsthand while building this
 // script). Default VU count (25) is also deliberately within that limiter's
